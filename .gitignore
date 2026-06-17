@@ -1,0 +1,18 @@
+## Node
+node_modules/
+dist/
+.env
+.wrangler/
+
+## IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Logs
+*.log

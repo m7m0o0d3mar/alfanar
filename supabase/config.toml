@@ -1,0 +1,38 @@
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+
+[db]
+major_version = 15
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["https://*.pages.dev"]
+jwt_expiry = 3600
+enable_signup = true
+
+[edge_runtime]
+enabled = true
+policy = "per_worker"
+
+[storage]
+enabled = true
+file_size_limit = "50MB"
+
+[functions]
+enabled = true
+verify_jwt = true
+
+[functions.wir]
+verify_jwt = false
+
+[functions.kpi-engine]
+verify_jwt = false
+
+[functions.ai-assistant]
+verify_jwt = false
+
+[functions.notifications]
+verify_jwt = false
