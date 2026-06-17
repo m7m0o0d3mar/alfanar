@@ -1,0 +1,37 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: erp-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: erp-frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: erp-frontend
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: c95464a96565cf19eac3c7edab9a4b53
+          command: pages deploy dist --project-name=alfanar --branch=main
+          workingDirectory: erp-frontend
