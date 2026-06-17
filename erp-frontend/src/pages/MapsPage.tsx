@@ -76,7 +76,7 @@ export default function MapsPage() {
 
   useEffect(() => {
     supabase.from('projects').select('id, project_code, name_en, status, progress_percent, location').eq('is_active', true).limit(500).then(({ data }) => {
-      const mapped = (data || []).map((p: any) => ({
+      const mapped: MapProject[] = (data || []).map((p) => ({
         ...p,
         lat: p.location ? extractLat(p.location) : getRandomCoord(24.7, 24.8),
         lng: p.location ? extractLng(p.location) : getRandomCoord(46.7, 46.8),
@@ -87,7 +87,7 @@ export default function MapsPage() {
     });
 
     supabase.from('units').select('id, unit_no, project_id, status').limit(1000).then(({ data }) => {
-      const mapped = (data || []).map((u: any) => ({
+      const mapped: MapUnit[] = (data || []).map((u) => ({
         ...u,
         project_name: '',
         lat: getRandomCoord(24.72, 24.78),
@@ -100,7 +100,7 @@ export default function MapsPage() {
   useEffect(() => {
     if (selectedProject && view === 'units') {
       supabase.from('units').select('id, unit_no, status').eq('project_id', selectedProject).limit(500).then(({ data }) => {
-        const mapped = (data || []).map((u: any) => ({
+        const mapped: MapUnit[] = (data || []).map((u) => ({
           ...u,
           project_id: selectedProject,
           lat: getRandomCoord(24.73, 24.77),

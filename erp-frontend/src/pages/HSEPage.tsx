@@ -14,14 +14,30 @@ interface Incident {
   incident_type: string; severity: string; location: string; status: string;
 }
 
+interface Observation {
+  id: string; observation_no: string; description: string; observation_date: string;
+  observation_type: string; severity: string; location: string; status: string;
+}
+
 interface Project {
   id: string; name_en: string; project_code: string;
+}
+
+type HseRecord = Incident | Observation;
+
+function getField(record: HseRecord, tab: 'incidents' | 'observations'): { no: string; title: string; type: string; date: string } {
+  if (tab === 'incidents') {
+    const r = record as Incident;
+    return { no: r.incident_no, title: r.title, type: r.incident_type, date: r.incident_date };
+  }
+  const r = record as Observation;
+  return { no: r.observation_no, title: r.description, type: r.observation_type, date: r.observation_date };
 }
 
 export default function HSEPage() {
   const t = useT();
   const toast = useToast();
-  const [records, setRecords] = useState<Incident[]>([]);
+  const [records, setRecords] = useState<HseRecord[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -77,8 +93,9 @@ export default function HSEPage() {
   }
 
   const filtered = records.filter((i) => {
-    const no = (i as any)[tab === 'incidents' ? 'incident_no' : 'observation_no'] || i.incident_no || '';
-    const title = stripTypePrefix((i as any)[tab === 'incidents' ? 'title' : 'description'] || i.title || '', (i as any).incident_type || (i as any).observation_type);
+    const fields = getField(i, tab);
+    const no = fields.no || '';
+    const title = stripTypePrefix(fields.title, fields.type);
     if (!search) return true;
     return no.toLowerCase().includes(search.toLowerCase()) || title.toLowerCase().includes(search.toLowerCase());
   });
@@ -200,12 +217,11 @@ export default function HSEPage() {
                 <tr><td colSpan={tab === 'incidents' ? 6 : 5} className="text-center py-8" style={{ color: 'var(--color-text-secondary)' }}>{t('admin.no_results')}</td></tr>
               ) : (
                 filtered.slice((page - 1) * pageSize, page * pageSize).map((i) => {
-                  const no = tab === 'incidents' ? i.incident_no : (i as any).observation_no || i.incident_no;
-                  const rawTitle = tab === 'incidents' ? i.title : (i as any).description || i.title;
-                  const incidentType = tab === 'incidents' ? i.incident_type : (i as any).observation_type || i.incident_type;
-                  const title = stripTypePrefix(rawTitle, incidentType);
-                  const date = tab === 'incidents' ? i.incident_date : (i as any).observation_date || i.incident_date;
-                  const type = incidentType;
+                  const fields = getField(i, tab);
+                  const title = stripTypePrefix(fields.title, fields.type);
+                  const type = fields.type;
+                  const no = fields.no;
+                  const date = fields.date;
                   return (
                   <tr key={i.id}>
                     <td className="font-mono text-xs">{no}</td>

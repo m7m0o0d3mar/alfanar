@@ -40,12 +40,12 @@ export default function TaskDetailPage() {
       supabase.from('user_profiles').select('id, display_name').order('display_name'),
     ]).then(([taskRes, actRes, , userRes]) => {
       const t = taskRes.data as WorkTask | null;
-      setTask(t); setForm(t || {}); setActivities(actRes.data as any[] || []);
+      setTask(t); setForm(t || {}); setActivities(actRes.data as { id: string; code: string; name_en: string }[] || []);
       setUserProfiles((userRes.data || []) as { id: string; display_name: string }[]);
       if (t?.activity_id) {
         supabase.from('work_requests').select('id, wir_no, title_en, status')
           .eq('activity_id', t.activity_id).order('created_at', { ascending: false })
-          .then(r => setRelatedWirs(r.data as any[] || []));
+          .then(r => setRelatedWirs(r.data as { id: string; wir_no: string; title_en: string; status: string }[] || []));
       }
       setLoading(false);
     });

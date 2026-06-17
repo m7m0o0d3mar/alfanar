@@ -16,11 +16,12 @@ export const authApi = {
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
     if (authError) throw authError;
     if (authData.user) {
-      await supabase.from('user_profiles').insert({
+      const { error } = await supabase.from('user_profiles').insert({
         id: authData.user.id,
         email,
         ...profile,
       });
+      if (error) throw error;
     }
     return authData;
   },
@@ -61,7 +62,8 @@ export const settingsApi = {
     return data?.value;
   },
   set: async (key: string, value: unknown) => {
-    await supabase.from('system_settings').upsert({ key, value });
+    const { error } = await supabase.from('system_settings').upsert({ key, value });
+    if (error) throw error;
   },
 };
 
@@ -79,13 +81,16 @@ export const modulesApi = {
   },
   upsert: async (module: Partial<Module>) => {
     if (module.id) {
-      await supabase.from('modules').update(module).eq('id', module.id);
+      const { error } = await supabase.from('modules').update(module).eq('id', module.id);
+      if (error) throw error;
     } else {
-      await supabase.from('modules').insert(module);
+      const { error } = await supabase.from('modules').insert(module);
+      if (error) throw error;
     }
   },
   toggle: async (id: string, is_enabled: boolean) => {
-    await supabase.from('modules').update({ is_enabled }).eq('id', id);
+    const { error } = await supabase.from('modules').update({ is_enabled }).eq('id', id);
+    if (error) throw error;
   },
 };
 
@@ -101,13 +106,16 @@ export const statusesApi = {
   },
   upsert: async (status: Partial<StatusDefinition>) => {
     if (status.id) {
-      await supabase.from('status_definitions').update(status).eq('id', status.id);
+      const { error } = await supabase.from('status_definitions').update(status).eq('id', status.id);
+      if (error) throw error;
     } else {
-      await supabase.from('status_definitions').insert(status);
+      const { error } = await supabase.from('status_definitions').insert(status);
+      if (error) throw error;
     }
   },
   remove: async (id: string) => {
-    await supabase.from('status_definitions').delete().eq('id', id);
+    const { error } = await supabase.from('status_definitions').delete().eq('id', id);
+    if (error) throw error;
   },
 };
 
@@ -130,20 +138,25 @@ export const workflowsApi = {
   },
   upsert: async (wf: Partial<WorkflowDefinition>) => {
     if (wf.id) {
-      await supabase.from('workflow_definitions').update(wf).eq('id', wf.id);
+      const { error } = await supabase.from('workflow_definitions').update(wf).eq('id', wf.id);
+      if (error) throw error;
     } else {
-      await supabase.from('workflow_definitions').insert(wf);
+      const { error } = await supabase.from('workflow_definitions').insert(wf);
+      if (error) throw error;
     }
   },
   upsertStep: async (step: Partial<WorkflowStep>) => {
     if (step.id) {
-      await supabase.from('workflow_steps').update(step).eq('id', step.id);
+      const { error } = await supabase.from('workflow_steps').update(step).eq('id', step.id);
+      if (error) throw error;
     } else {
-      await supabase.from('workflow_steps').insert(step);
+      const { error } = await supabase.from('workflow_steps').insert(step);
+      if (error) throw error;
     }
   },
   removeStep: async (id: string) => {
-    await supabase.from('workflow_steps').delete().eq('id', id);
+    const { error } = await supabase.from('workflow_steps').delete().eq('id', id);
+    if (error) throw error;
   },
 };
 
@@ -159,13 +172,16 @@ export const customFieldsApi = {
   },
   upsert: async (field: Partial<CustomField>) => {
     if (field.id) {
-      await supabase.from('custom_fields').update(field).eq('id', field.id);
+      const { error } = await supabase.from('custom_fields').update(field).eq('id', field.id);
+      if (error) throw error;
     } else {
-      await supabase.from('custom_fields').insert(field);
+      const { error } = await supabase.from('custom_fields').insert(field);
+      if (error) throw error;
     }
   },
   remove: async (id: string) => {
-    await supabase.from('custom_fields').delete().eq('id', id);
+    const { error } = await supabase.from('custom_fields').delete().eq('id', id);
+    if (error) throw error;
   },
 };
 
@@ -179,13 +195,16 @@ export const kpiApi = {
   },
   upsert: async (kpi: Partial<KpiDefinition>) => {
     if (kpi.id) {
-      await supabase.from('kpi_definitions').update(kpi).eq('id', kpi.id);
+      const { error } = await supabase.from('kpi_definitions').update(kpi).eq('id', kpi.id);
+      if (error) throw error;
     } else {
-      await supabase.from('kpi_definitions').insert(kpi);
+      const { error } = await supabase.from('kpi_definitions').insert(kpi);
+      if (error) throw error;
     }
   },
   remove: async (id: string) => {
-    await supabase.from('kpi_definitions').delete().eq('id', id);
+    const { error } = await supabase.from('kpi_definitions').delete().eq('id', id);
+    if (error) throw error;
   },
   getLogs: async (kpiId: string, period?: string) => {
     let q = supabase.from('kpi_logs').select('*').eq('kpi_id', kpiId).order('period', { ascending: false });
@@ -232,11 +251,12 @@ export const usersApi = {
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
     if (authError) throw authError;
     if (authData.user) {
-      await supabase.from('user_profiles').insert({
+      const { error } = await supabase.from('user_profiles').insert({
         id: authData.user.id,
         email,
         ...profile,
       });
+      if (error) throw error;
     }
     return authData;
   },

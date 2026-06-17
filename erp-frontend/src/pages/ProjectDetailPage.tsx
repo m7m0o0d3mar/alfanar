@@ -101,7 +101,7 @@ export default function ProjectDetailPage() {
           toast.error('Failed to load audit history');
           return;
         }
-        data = (fallback.data || []).map((r: any) => ({
+        data = (fallback.data || []).map((r: Record<string, unknown>) => ({
           id: r.id,
           changed_by: r.user_id || r.changed_by,
           action: r.action,

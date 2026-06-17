@@ -58,7 +58,9 @@ export default function DocumentsPage() {
         try {
           const { error } = await supabase.from('documents').insert({ ...s, project_id: p.id, status: 'current' });
           if (!error) count++;
-        } catch {}
+        } catch (err) {
+          console.error('Seed document failed:', err);
+        }
       }
     }
     toast.success(`Seeded ${count} sample document(s)`);

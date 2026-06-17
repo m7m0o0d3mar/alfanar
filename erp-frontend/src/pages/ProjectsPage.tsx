@@ -4,9 +4,17 @@ import { useUserProjects } from '../hooks/useData';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../services/supabase';
+import type { Project } from '../types';
 import { Search, Plus, Filter, Building2, X, LayoutGrid, Table, Map as MapIcon, List, MapPin, ExternalLink, Globe, User } from 'lucide-react';
 import { formatDate } from '../utils/date';
 import Pagination from '../components/Pagination';
+
+interface ProjectWithExtras extends Project {
+  budget_amount?: number;
+  latitude?: number;
+  longitude?: number;
+  consultant_name?: string;
+}
 
 interface ProjectForm {
   project_code: string;
@@ -205,8 +213,8 @@ export default function ProjectsPage() {
                       }`}>{p.status.replace('_', ' ')}</span>
                     </td>
                     <td>
-                      {(p as any).budget_amount != null
-                        ? new Intl.NumberFormat('en', { style: 'currency', currency: 'SAR', minimumFractionDigits: 0 }).format((p as any).budget_amount)
+                      {(p as ProjectWithExtras).budget_amount != null
+                        ? new Intl.NumberFormat('en', { style: 'currency', currency: 'SAR', minimumFractionDigits: 0 }).format((p as ProjectWithExtras).budget_amount!)
                         : '-'}
                     </td>
                     <td>
@@ -304,8 +312,8 @@ export default function ProjectsPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredProjects.map((p) => {
-                const lat = (p as any).latitude;
-                const lng = (p as any).longitude;
+                const lat = (p as ProjectWithExtras).latitude;
+                const lng = (p as ProjectWithExtras).longitude;
                 const hasCoords = lat != null && lng != null;
                 return (
                   <div
@@ -358,10 +366,10 @@ export default function ProjectsPage() {
                     )}
 
                     <div className="text-xs text-gray-500 space-y-1">
-                      {(p as any).consultant_name && (
+                      {(p as ProjectWithExtras).consultant_name && (
                         <div className="flex items-center gap-1">
                           <User size={12} className="shrink-0" />
-                          <span className="truncate">Consultant: {(p as any).consultant_name}</span>
+                          <span className="truncate">Consultant: {(p as ProjectWithExtras).consultant_name}</span>
                         </div>
                       )}
                     </div>

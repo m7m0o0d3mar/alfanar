@@ -88,7 +88,7 @@ export default function WarehousePage() {
           if (d1 && d1.length > 0) return { data: d1, error: null };
           try {
             const r = await supabase.from('stock_movements').select('*').limit(200);
-            if (r.data && r.data.length > 0) return { data: r.data.map((m: any) => ({ ...m, materials: null, warehouses: null })), error: null };
+            if (r.data && r.data.length > 0) return { data: r.data.map((m: Record<string, unknown>) => ({ ...m, materials: null, warehouses: null })), error: null };
           } catch { /* ignore */ }
           const { data: d2 } = await supabase.from('warehouse_movements').select('*').limit(200);
           return { data: d2 || [], error: null };
@@ -111,10 +111,10 @@ export default function WarehousePage() {
     }
   }
 
-  function filter(items: any[], keys: string[]): any[] {
+  function filter<T extends Record<string, unknown>>(items: T[], keys: string[]): T[] {
     if (!debouncedSearch) return items;
     const q = debouncedSearch.toLowerCase();
-    return items.filter((item: any) => keys.some(k => String(item[k] || '').toLowerCase().includes(q)));
+    return items.filter((item) => keys.some(k => String(item[k] ?? '').toLowerCase().includes(q)));
   }
 
   async function save() {
@@ -181,7 +181,7 @@ export default function WarehousePage() {
     }
   }
 
-  function openEditForm<T extends Record<string, any>>(item: T) {
+  function openEditForm(item: any) {
     setFormError('');
     setEditId(item.id);
     setForm({
@@ -227,7 +227,7 @@ export default function WarehousePage() {
               ) : filtered.length === 0 ? (
                 <EmptyState title={'No records'} description="Add your first record to get started." actionLabel="Add New" onAction={activeTab === 'inventory' ? undefined : openNewForm} />
               ) : (
-                paged.map((item: any) => (
+                paged.map((item) => (
                   <tr key={item.id}>
                     {cols.map(c => <td key={c.key}>{c.render ? c.render(item) : String(item[c.key] ?? '')}</td>)}
                     <td>
@@ -460,7 +460,7 @@ export default function WarehousePage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <button className="btn-sm btn-secondary" onClick={() => {
-            let data: any[] = [];
+            let data: (Warehouse | Material | InventoryItem | StockMovement | PR)[] = [];
             if (activeTab === 'warehouses') data = warehouses;
             else if (activeTab === 'materials') data = materials;
             else if (activeTab === 'inventory') data = inventory;

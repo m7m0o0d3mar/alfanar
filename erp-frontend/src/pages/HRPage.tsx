@@ -36,7 +36,7 @@ export default function HRPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [laborGroups, setLaborGroups] = useState<any[]>([]);
+  const [laborGroups, setLaborGroups] = useState<{ id: string; project_id: string; group_code: string; name_en: string; name_ar?: string; created_at?: string }[]>([]);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<'employees' | 'payroll' | 'labor_groups'>('employees');
   const [showForm, setShowForm] = useState(false);

@@ -304,7 +304,9 @@ export default function ExecutionPage() {
       try {
         const user = (await supabase.auth.getUser()).data.user;
         if (user) payload.requested_by = user.id;
-      } catch {}
+      } catch (err) {
+        console.error('Failed to get current user:', err);
+      }
       const { error } = await supabase.from('work_requests').insert(payload);
       if (error) throw error;
       toast.success(`Work Request created`);

@@ -207,7 +207,7 @@ export default function SalesPage() {
   function handleOpenForm() {
     setFormError('');
     if (tab === 'leads') {
-      generateLeadNo().then((no) => setLeadForm({ ...leadForm, lead_no: no }));
+      generateLeadNo().then((no) => setLeadForm(prev => ({ ...prev, lead_no: no })));
     } else if (tab === 'customers') {
       setCustomerForm(emptyCustomerForm);
     } else {

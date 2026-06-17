@@ -5,7 +5,7 @@ import {
   CalendarRange, Plus, Save, Download, Link2, BarChart3,
   Layers, GitBranch, AlertTriangle, Clock, Users,
 } from 'lucide-react';
-import type { ScheduleTask, TaskDependency, ScheduleFilter, WBSNode } from '../types';
+import type { ScheduleTask, TaskDependency, ScheduleFilter, WBSNode, Project, Resource, TaskResource, Baseline } from '../types';
 import GanttChart from '../components/timeline/GanttChart';
 import TimelineFilter from '../components/timeline/TimelineFilter';
 
@@ -15,13 +15,13 @@ export default function TimelinePage() {
   const [activeView, setActiveView] = useState<'gantt' | 'resources' | 'dependencies'>('gantt');
 
   // Raw data
-  const [projects, setProjects] = useState<any[]>([]);
-  const [phases, setPhases] = useState<any[]>([]);
-  const [wbsNodes, setWbsNodes] = useState<any[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [phases, setPhases] = useState<{ id: string; project_id: string; phase_code: string; name_en: string; name_ar?: string; start_date?: string; end_date?: string; progress_percent?: number; status?: string; "order"?: number }[]>([]);
+  const [wbsNodes, setWbsNodes] = useState<WBSNode[]>([]);
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [dependencies, setDependencies] = useState<TaskDependency[]>([]);
-  const [resources, setResources] = useState<any[]>([]);
-  const [taskResources, setTaskResources] = useState<any[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [taskResources, setTaskResources] = useState<TaskResource[]>([]);
   const [assignees, setAssignees] = useState<{ id: string; name: string }[]>([]);
 
   // Filter state
@@ -37,7 +37,7 @@ export default function TimelinePage() {
   const [savingBaseline, setSavingBaseline] = useState(false);
   const [baselineName, setBaselineName] = useState('');
   const [showBaselineModal, setShowBaselineModal] = useState(false);
-  const [baselines, setBaselines] = useState<any[]>([]);
+  const [baselines, setBaselines] = useState<Baseline[]>([]);
 
   useEffect(() => {
     loadAll();
@@ -74,7 +74,7 @@ export default function TimelinePage() {
       setDependencies(deps || []);
       setResources(res || []);
       setTaskResources(tres || []);
-      setAssignees((users || []).map((u: any) => ({ id: u.id, name: u.full_name_en })));
+      setAssignees((users || []).map((u: { id: string; full_name_en: string }) => ({ id: u.id, name: u.full_name_en })));
     } catch (err) {
       console.error('Failed to load scheduling data', err);
     } finally {
@@ -162,6 +162,16 @@ export default function TimelinePage() {
     setLoading(true);
     await supabase.rpc('calculate_cpm', { p_project_id: filter.project_id });
     await loadAll();
+  }
+
+  // Update task from Gantt drag
+  async function handleUpdateTask(taskId: string, updates: Partial<ScheduleTask>) {
+    const { error } = await supabase.from('work_tasks').update(updates).eq('id', taskId);
+    if (!error) {
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...updates } as ScheduleTask : t));
+    } else {
+      console.error('Failed to update task', error);
+    }
   }
 
   // Export CSV
@@ -274,6 +284,7 @@ export default function TimelinePage() {
               tasks={filteredTasks}
               dependencies={filteredDeps}
               filter={filter}
+              onUpdateTask={handleUpdateTask}
             />
           )}
 
@@ -321,7 +332,7 @@ export default function TimelinePage() {
             <div className="glass-card p-4">
               <h3 className="text-sm font-semibold mb-3">Baselines</h3>
               <div className="flex flex-wrap gap-2">
-                {baselines.map((b: any) => (
+                {baselines.map((b) => (
                   <div
                     key={b.id}
                     className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium"
@@ -420,7 +431,7 @@ export default function TimelinePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {taskResources.map((tr: any) => {
+                    {taskResources.map((tr) => {
                       const task = tasks.find(t => t.id === tr.task_id);
                       return (
                         <tr key={tr.id}>

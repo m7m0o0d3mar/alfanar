@@ -38,8 +38,8 @@ export default function EmployeeDetailPage() {
     ]).then(([empRes, payRes]) => {
       setEmployee(empRes.data as Employee | null);
       setForm(empRes.data as Employee || {});
-      const details = (payRes.data || []) as any[];
-      setPayrolls(details.map((d: any) => ({
+      const details = (payRes.data || []) as { id: string; net_salary: number; payroll_run_id: string; payroll_run?: { payroll_code: string; period_start: string; status: string } }[];
+      setPayrolls(details.map((d) => ({
         id: d.id, payroll_code: d.payroll_run?.payroll_code || '', period_start: d.payroll_run?.period_start || '',
         net_salary: d.net_salary || 0, status: d.payroll_run?.status || 'draft', payroll_run_id: d.payroll_run_id,
       })));

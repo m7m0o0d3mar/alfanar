@@ -147,7 +147,7 @@ export default function AttendancePage() {
       if (cancelled.current) return;
       setEmployees(d);
       if (d.length > 0 && !selectedEmployee) {
-        const match = d.find((e: any) => e.full_name_en?.toLowerCase().includes((user?.full_name_en || '').toLowerCase()));
+        const match = d.find((e) => e.full_name_en?.toLowerCase().includes((user?.full_name_en || '').toLowerCase()));
         const emp = match || d[0];
         if (cancelled.current) return;
         setSelectedEmployee(emp.id);
@@ -191,17 +191,17 @@ export default function AttendancePage() {
         .lt('check_in', new Date(new Date(end).setDate(new Date(end).getDate() + 1)).toISOString().slice(0, 10))
         .order('check_in', { ascending: false });
       if (cancelled.current) return;
-      const all = data || [];
+      const all: AttendanceRecord[] = data || [];
       setAllMonthlyRecords(all);
       const sum: AttendanceSummary = {
         total: all.length,
-        present: all.filter((r: any) => r.status === 'present').length,
-        late: all.filter((r: any) => r.status === 'late').length,
-        absent: all.filter((r: any) => r.status === 'absent').length,
-        half_day: all.filter((r: any) => r.status === 'half_day').length,
-        overtime: all.filter((r: any) => r.status === 'overtime').length,
-        total_hours: all.reduce((s: number, r: any) => s + Number(r.total_hours || 0), 0),
-        avg_hours: all.length > 0 ? all.reduce((s: number, r: any) => s + Number(r.total_hours || 0), 0) / all.length : 0,
+        present: all.filter((r) => r.status === 'present').length,
+        late: all.filter((r) => r.status === 'late').length,
+        absent: all.filter((r) => r.status === 'absent').length,
+        half_day: all.filter((r) => r.status === 'half_day').length,
+        overtime: all.filter((r) => r.status === 'overtime').length,
+        total_hours: all.reduce((s, r) => s + Number(r.total_hours || 0), 0),
+        avg_hours: all.length > 0 ? all.reduce((s, r) => s + Number(r.total_hours || 0), 0) / all.length : 0,
       };
       setSummary(sum);
     } catch {}
@@ -302,7 +302,7 @@ export default function AttendancePage() {
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   const formatDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-  const exportReport = () => exportCSV(records as any, `attendance_${reportMonth}.csv`);
+      const exportReport = () => exportCSV(records as unknown as Record<string, unknown>[], `attendance_${reportMonth}.csv`);
 
   const now = currentTime;
   const hours = now.getHours();
@@ -336,8 +336,8 @@ export default function AttendancePage() {
             value={selectedEmployee}
             onChange={(e) => handleEmployeeChange(e.target.value)}
           >
-            {employees.map((e: any) => (
-              <option key={e.id} value={e.id}>{e.full_name_en} ({e.employee_code})</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>{e.full_name_en} ({e.employee_code})</option>
             ))}
           </select>
         </div>

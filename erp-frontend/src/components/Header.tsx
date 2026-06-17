@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useT } from '../hooks/useTranslation';
 import { Search, Moon, Sun, Globe, LogOut, Sparkles, Bell, User, Settings, Menu } from 'lucide-react';
 import NotificationBell from './NotificationBell';
+import AiAssistant from './AiAssistant';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -15,6 +16,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const t = useT();
   const { user, signOut } = useAuth();
   const { settings } = useSettings();
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const { theme, toggleTheme, language, setLanguage } = useTheme();
   const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -96,6 +98,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
           className="p-2 rounded-full hover:bg-white/5 transition-colors relative"
           style={{color: 'var(--color-text-secondary)'}}
           title="AI Assistant"
+          onClick={() => setShowAiAssistant(true)}
         >
           <Sparkles size={16} style={{color: 'var(--color-primary)'}} />
         </button>
@@ -158,6 +161,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
           )}
         </div>
       </div>
+      <AiAssistant open={showAiAssistant} onClose={() => setShowAiAssistant(false)} />
     </header>
   );
 }

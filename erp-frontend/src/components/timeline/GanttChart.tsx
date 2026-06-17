@@ -25,12 +25,13 @@ interface WbsRow {
 }
 
 interface GanttChartProps {
-  projects: { id: string; name_en: string; start_date: string; end_date: string; progress_percent: number; status: string }[];
-  phases: { id: string; project_id: string; phase_code: string; name_en: string; start_date: string; end_date: string; progress_percent: number; status: string }[];
-  wbsNodes: { id: string; project_id: string; wbs_code: string; parent_id: string | null; level: number; name_en: string; weight_percent: number }[];
+  projects: { id: string; name_en: string; start_date?: string; end_date?: string; progress_percent?: number; status?: string }[];
+  phases: { id: string; project_id: string; phase_code: string; name_en: string; start_date?: string; end_date?: string; progress_percent?: number; status?: string; name_ar?: string; order?: number }[];
+  wbsNodes: { id: string; project_id: string; wbs_code: string; parent_id?: string | null; level: number; name_en: string; weight_percent?: number }[];
   tasks: ScheduleTask[];
   dependencies: TaskDependency[];
   filter: ScheduleFilter;
+  onUpdateTask?: (taskId: string, updates: Partial<ScheduleTask>) => void;
 }
 
 const DAY_MS = 1000 * 60 * 60 * 24;
@@ -93,12 +94,23 @@ function addDays(d: Date, n: number): Date {
   return r;
 }
 
-export default function GanttChart({ projects, phases, wbsNodes, tasks, dependencies, filter }: GanttChartProps) {
+export default function GanttChart({ projects, phases, wbsNodes, tasks, dependencies, filter, onUpdateTask }: GanttChartProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [hoveredTask, setHoveredTask] = useState<string | null>(null);
+  const [dragPreview, setDragPreview] = useState<{ taskId: string; start: Date; end: Date } | null>(null);
+  const dragState = useRef<{ type: 'move' | 'resize-start' | 'resize-end'; taskId: string; startX: number; originalStart: Date; originalEnd: Date } | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const ganttRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (dragState.current) {
+        dragState.current = null;
+        setDragPreview(null);
+      }
+    };
+  }, []);
 
   const scale = filter.scale || 'week';
 
@@ -271,6 +283,65 @@ export default function GanttChart({ projects, phases, wbsNodes, tasks, dependen
     });
   };
 
+  const handleBarMouseDown = useCallback((e: React.MouseEvent, task: ScheduleTask, type: 'move' | 'resize-start' | 'resize-end') => {
+    e.preventDefault();
+    e.stopPropagation();
+    const start = parseDate(task.start_date) || dateRange.start;
+    const end = parseDate(task.end_date) || addDays(start, 30);
+    dragState.current = { type, taskId: task.id, startX: e.clientX, originalStart: start, originalEnd: end };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragState.current) return;
+      const deltaX = ev.clientX - dragState.current.startX;
+      const deltaDays = Math.round(deltaX / dayWidth);
+      let newStart = new Date(dragState.current.originalStart);
+      let newEnd = new Date(dragState.current.originalEnd);
+      if (type === 'move') {
+        newStart.setDate(newStart.getDate() + deltaDays);
+        newEnd.setDate(newEnd.getDate() + deltaDays);
+      } else if (type === 'resize-start') {
+        newStart.setDate(newStart.getDate() + deltaDays);
+        if (newStart >= newEnd) newStart = new Date(newEnd.getTime() - DAY_MS);
+      } else {
+        newEnd.setDate(newEnd.getDate() + deltaDays);
+        if (newEnd <= newStart) newEnd = new Date(newStart.getTime() + DAY_MS);
+      }
+      setDragPreview({ taskId: dragState.current.taskId, start: newStart, end: newEnd });
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (dragState.current && onUpdateTask) {
+        const deltaX = ev.clientX - dragState.current.startX;
+        const deltaDays = Math.round(deltaX / dayWidth);
+        let newStart = new Date(dragState.current.originalStart);
+        let newEnd = new Date(dragState.current.originalEnd);
+        if (type === 'move') {
+          newStart.setDate(newStart.getDate() + deltaDays);
+          newEnd.setDate(newEnd.getDate() + deltaDays);
+        } else if (type === 'resize-start') {
+          newStart.setDate(newStart.getDate() + deltaDays);
+          if (newStart >= newEnd) newStart = new Date(newEnd.getTime() - DAY_MS);
+        } else {
+          newEnd.setDate(newEnd.getDate() + deltaDays);
+          if (newEnd <= newStart) newEnd = new Date(newStart.getTime() + DAY_MS);
+        }
+        if (deltaDays !== 0) {
+          onUpdateTask(dragState.current.taskId, {
+            start_date: newStart.toISOString().slice(0, 10),
+            end_date: newEnd.toISOString().slice(0, 10),
+          });
+        }
+      }
+      dragState.current = null;
+      setDragPreview(null);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [dateRange, dayWidth, onUpdateTask]);
+
   // Month labels + week/day grid
   const timelineHeaders = useMemo(() => {
     const headers: { label: string; left: number; width: number }[] = [];
@@ -290,8 +361,9 @@ export default function GanttChart({ projects, phases, wbsNodes, tasks, dependen
 
   // Get bar position for a task
   const getBarStyle = (task: ScheduleTask) => {
-    const start = parseDate(task.start_date) || dateRange.start;
-    const end = parseDate(task.end_date) || addDays(start, 30);
+    const preview = dragPreview && dragPreview.taskId === task.id ? dragPreview : null;
+    const start = preview ? preview.start : (parseDate(task.start_date) || dateRange.start);
+    const end = preview ? preview.end : (parseDate(task.end_date) || addDays(start, 30));
     const left = Math.max(0, daysBetween(dateRange.start, start) * dayWidth);
     const width = Math.max(dayWidth, daysBetween(start, end) * dayWidth);
     return { left, width };
@@ -498,10 +570,27 @@ export default function GanttChart({ projects, phases, wbsNodes, tasks, dependen
                       minWidth: 4,
                       opacity: task.status === 'completed' ? 0.7 : 1,
                       boxShadow: task.is_critical ? `0 0 0 2px ${statusColor}44` : 'none',
+                      cursor: onUpdateTask ? 'grab' : 'pointer',
                     }}
                     onMouseEnter={() => setHoveredTask(task.id)}
                     onMouseLeave={() => setHoveredTask(null)}
+                    onMouseDown={onUpdateTask ? (e) => handleBarMouseDown(e, task, 'move') : undefined}
                   >
+                    {/* Left resize handle */}
+                    {onUpdateTask && (
+                      <div
+                        className="absolute left-0 top-0 h-full w-1.5 cursor-col-resize z-10 rounded-l hover:bg-white/25"
+                        onMouseDown={(e) => { e.stopPropagation(); handleBarMouseDown(e, task, 'resize-start'); }}
+                      />
+                    )}
+                    {/* Right resize handle */}
+                    {onUpdateTask && (
+                      <div
+                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize z-10 rounded-r hover:bg-white/25"
+                        onMouseDown={(e) => { e.stopPropagation(); handleBarMouseDown(e, task, 'resize-end'); }}
+                      />
+                    )}
+
                     {/* Progress fill */}
                     <div
                       className="absolute inset-y-0 left-0 rounded-s"

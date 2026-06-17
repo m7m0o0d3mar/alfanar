@@ -75,7 +75,8 @@ export default function FinancePage() {
     if (!debouncedSearch) return true;
     const q = debouncedSearch.toLowerCase();
     const code = (activeTab === 'invoices' ? (i as Invoice).invoice_no : (i as BudgetEntry).budget_code) || '';
-    return code.toLowerCase().includes(q) || ((i as any).description || '').toLowerCase().includes(q);
+    const desc = activeTab === 'budget' ? (i as BudgetEntry).description : (i as Invoice).notes;
+    return code.toLowerCase().includes(q) || ((desc || '')).toLowerCase().includes(q);
   });
 
   async function autoCreateInvoicesFromPOs() {
@@ -98,7 +99,9 @@ export default function FinancePage() {
           status: 'draft', notes: `Auto-created from PO ${po.po_no}`,
         });
         if (!error) created++;
-      } catch {}
+      } catch (err) {
+        console.error('Auto-create invoice failed:', err);
+      }
     }
     toast.success(`Created ${created} invoice(s) from approved POs`);
     load();

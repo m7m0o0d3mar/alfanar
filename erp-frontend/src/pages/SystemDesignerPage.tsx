@@ -42,7 +42,7 @@ export default function SystemDesignerPage() {
               }`}
             >
               <Icon size={16} />
-              {t(`designer.${tab.key}` as any)}
+              {t(`designer.${tab.key}`)}
             </button>
           );
         })}

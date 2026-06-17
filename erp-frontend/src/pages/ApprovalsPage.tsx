@@ -192,8 +192,8 @@ export default function ApprovalsPage() {
               activity_id: null, unit_id: null, quantity_approved: 1,
               notes: 'Auto-approved via workflow',
             });
-          } catch {
-            // Silently skip if table/ref not available
+          } catch (err) {
+            console.error('Approval activity result insert failed:', err);
           }
         }
 
