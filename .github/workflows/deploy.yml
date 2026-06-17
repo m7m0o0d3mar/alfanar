@@ -31,5 +31,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: c95464a96565cf19eac3c7edab9a4b53
-          command: pages deploy dist --project-name=alfanar --branch=main
+          command: pages deploy dist --project-name=alfanar-c0q --branch=main --commit-dirty=true
           workingDirectory: erp-frontend
