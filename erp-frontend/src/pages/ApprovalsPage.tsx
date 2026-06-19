@@ -21,7 +21,7 @@ interface Approval {
 interface ApprovalStep {
   id: string; approval_request_id: string; step_order: number;
   step_user_id: string; step_role: string; status: string;
-  comments: string; decided_at: string;
+  comment: string; decided_at: string;
   acted_by?: string; assigned_to_name?: string; acted_by_name?: string;
 }
 
@@ -86,13 +86,13 @@ export default function ApprovalsPage() {
     };
     const tbl = tableMap[moduleCode];
     if (!tbl) { setRefRecords([]); return; }
-    let query = supabase.from(tbl).select('id, title_en, title, name_en, full_name_en');
+    let query = supabase.from(tbl).select('*');
     if (moduleCode === 'quality') query = query.eq('is_ncr', true);
     const { data } = await query.limit(50);
     if (data) {
       setRefRecords(data.map((r: Record<string, unknown>) => ({
         id: r.id as string,
-        label: (r.title_en || r.title || r.name_en || r.full_name_en || r.id) as string,
+        label: (r.title_en || r.title || r.name_en || r.full_name_en || r.full_name || r.description || r.invoice_no || r.ticket_no || r.incident_no || r.id) as string,
       })));
     }
   }
@@ -309,7 +309,7 @@ export default function ApprovalsPage() {
                           <span className={`badge text-xs ${step.status === 'approved' ? 'badge-success' : step.status === 'rejected' ? 'badge-danger' : 'badge'}`}>{step.status}</span>
                         </div>
                         <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{step.assigned_to_name || step.step_user_id?.slice(0, 8)}</p>
-                        {step.comments && <p className="text-xs mt-1 italic" style={{ color: 'var(--color-text-secondary)' }}>"{step.comments}"</p>}
+                        {step.comment && <p className="text-xs mt-1 italic" style={{ color: 'var(--color-text-secondary)' }}>"{step.comment}"</p>}
                         {step.decided_at && <p className="text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>{formatDate(step.decided_at)}</p>}
                         {step.acted_by_name && <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>by {step.acted_by_name}</p>}
                         {isPending && isCurrentUser && (

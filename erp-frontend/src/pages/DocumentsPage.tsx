@@ -11,7 +11,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 
 interface Document {
   id: string; doc_code: string; title_en: string; category: string;
-  revision: string; description: string; status: string; uploaded_by: string; created_at: string;
+  revision: string; description: string; status: string; uploaded_by: string; uploaded_at: string;
   doc_type: string; file_url: string | null;
 }
 
@@ -46,6 +46,7 @@ export default function DocumentsPage() {
     if (projects.length === 0) { toast.error('No projects found to seed documents'); return; }
     setSaving(true);
     let count = 0;
+    const currentUser = (await supabase.auth.getUser()).data.user;
     for (const p of projects) {
       const samples = [
         { doc_code: `${p.project_code}-DRW-001`, title_en: 'Architectural Floor Plan', doc_type: 'drawing', category: 'Architectural', revision: 'A', description: 'Ground floor architectural plan with dimensions and room layout' },
@@ -56,7 +57,7 @@ export default function DocumentsPage() {
       ];
       for (const s of samples) {
         try {
-          const { error } = await supabase.from('documents').insert({ ...s, project_id: p.id, status: 'current' });
+          const { error } = await supabase.from('documents').insert({ ...s, project_id: p.id, status: 'current', uploaded_by: currentUser?.id || null });
           if (!error) count++;
         } catch (err) {
           console.error('Seed document failed:', err);
@@ -72,7 +73,7 @@ export default function DocumentsPage() {
     setLoading(true);
     try {
       const [docRes, projRes] = await Promise.all([
-        supabase.from('documents').select('*').order('created_at', { ascending: false }),
+        supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
         supabase.from('projects').select('id, name_en, project_code').eq('is_active', true).order('name_en'),
       ]);
       const docsData = (docRes.data || []) as Document[];

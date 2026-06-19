@@ -73,6 +73,7 @@ export default function QualityPage() {
     setFormError('');
     if (!form.project_id) { setFormError('Project is required'); return; }
     if (!form.wir_no.trim()) { setFormError('NCR No is required'); return; }
+    if (!form.title_en.trim()) { setFormError('Title is required'); return; }
     setSaving(true);
     try {
       const { error } = await supabase.from('work_requests').insert({
