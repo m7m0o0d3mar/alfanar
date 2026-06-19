@@ -54,16 +54,21 @@ export default function HRPage() {
   useEffect(() => {
     if (!payrollForm.period_start) return;
     (async () => {
-      const { data: emps } = await supabase.from('employees').select('basic_salary').eq('project_id', payrollForm.project_id);
-      const sum = (emps || []).reduce((acc, e) => acc + (e.basic_salary || 0), 0);
-      if (payrollForm.period_start && payrollForm.period_end) {
-        const start = new Date(payrollForm.period_start);
-        const end = new Date(payrollForm.period_end);
-        const days = Math.max(1, (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-        const months = days / 30.44;
-        setTotalAmount(Math.round(sum * months));
-      } else {
-        setTotalAmount(sum);
+      try {
+        const { data: emps } = await supabase.from('employees').select('basic_salary').eq('project_id', payrollForm.project_id);
+        const sum = (emps || []).reduce((acc, e) => acc + (e.basic_salary || 0), 0);
+        if (payrollForm.period_start && payrollForm.period_end) {
+          const start = new Date(payrollForm.period_start);
+          const end = new Date(payrollForm.period_end);
+          const days = Math.max(1, (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+          const months = days / 30.44;
+          setTotalAmount(Math.round(sum * months));
+        } else {
+          setTotalAmount(sum);
+        }
+      } catch (err) {
+        console.error('Payroll calculation failed:', err);
+        setTotalAmount(0);
       }
     })();
   }, [payrollForm.period_start, payrollForm.period_end, payrollForm.project_id]);
@@ -166,7 +171,7 @@ export default function HRPage() {
         status: 'draft', total_amount: totalAmount, total_salaries: totalAmount, total_deductions: 0, total_allowances: 0, net_total: totalAmount,
       });
       if (error) throw error;
-      toast.success(`Payroll "${payrollForm.payroll_code}" created`);
+      toast.success(`Payroll "${code}" created`);
       setShowForm(false); setPayrollForm(emptyPayrollForm); load();
     } catch (err: unknown) {
       console.error('Payroll save failed:', err);

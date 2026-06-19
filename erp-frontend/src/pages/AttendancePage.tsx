@@ -143,11 +143,12 @@ export default function AttendancePage() {
 
   async function loadEmployees() {
     try {
-      const d = (await supabase.from('employees').select('id, full_name_en, employee_code, project_id').eq('status', 'active').order('full_name_en')).data || [];
+      const d = (await supabase.from('employees').select('id, full_name_en, employee_code, project_id, email').eq('status', 'active').order('full_name_en')).data || [];
       if (cancelled.current) return;
       setEmployees(d);
       if (d.length > 0 && !selectedEmployee) {
-        const match = d.find((e) => e.full_name_en?.toLowerCase().includes((user?.full_name_en || '').toLowerCase()));
+        let match = user?.email ? d.find((e) => e.email?.toLowerCase() === user.email!.toLowerCase()) : undefined;
+        if (!match) match = d.find((e) => e.full_name_en?.toLowerCase().includes((user?.full_name_en || '').toLowerCase()));
         const emp = match || d[0];
         if (cancelled.current) return;
         setSelectedEmployee(emp.id);

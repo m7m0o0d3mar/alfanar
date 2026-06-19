@@ -173,7 +173,7 @@ export default function WarehousePage() {
 
   async function handleDelete() {
     if (!deleteTarget) return;
-    const tableMap: Record<string, string> = { warehouses: 'warehouses', materials: 'materials', movements: 'stock_movements', requisitions: 'purchase_requisitions' };
+    const tableMap: Record<string, string> = { warehouses: 'warehouses', materials: 'materials', inventory: 'inventory', movements: 'stock_movements', requisitions: 'purchase_requisitions' };
     const table = tableMap[activeTab as string] || '';
     if (!table) return;
     try {
