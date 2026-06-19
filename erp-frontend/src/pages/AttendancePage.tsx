@@ -5,8 +5,8 @@ import { useT } from '../hooks/useTranslation';
 import {
   Clock, CheckCircle, XCircle, MapPin,
   Download, ArrowRightFromLine, ArrowLeftToLine,
-  BarChart3, List, Smartphone, LayoutDashboard,
-  CalendarDays, Sun, Moon, AlertTriangle, Navigation,
+  BarChart3, List, LayoutDashboard,
+  CalendarDays, Sun, Moon, Navigation,
 } from 'lucide-react';
 import type { AttendanceRecord, AttendanceSummary } from '../types';
 import { exportCSV } from '../utils/csv';
@@ -154,7 +154,9 @@ export default function AttendancePage() {
         setSelectedEmployeeName(emp.full_name_en || '');
         if (emp.project_id) loadProjectLocation(emp.project_id);
       }
-    } catch {}
+    } catch (err) {
+      console.error('Load employees failed:', err);
+    }
   }
 
   async function loadToday() {
@@ -173,7 +175,9 @@ export default function AttendancePage() {
       const rec = data?.[0] || null;
       setTodayRecord(rec);
       setCheckedIn(!!rec && !rec.check_out);
-    } catch {}
+    } catch (err) {
+      console.error('Load today failed:', err);
+    }
   }
 
   /** Load ALL records for the current month (for calendar + dashboard) */
@@ -204,7 +208,9 @@ export default function AttendancePage() {
         avg_hours: all.length > 0 ? all.reduce((s, r) => s + Number(r.total_hours || 0), 0) / all.length : 0,
       };
       setSummary(sum);
-    } catch {}
+    } catch (err) {
+      console.error('Load monthly failed:', err);
+    }
   }
 
   async function loadRecords() {
@@ -227,7 +233,9 @@ export default function AttendancePage() {
       if (cancelled.current) return;
       setRecords(data || []);
       if (count !== null) setTotalRecords(count);
-    } catch {} finally { if (!cancelled.current) setLoading(false); }
+    } catch (err) {
+      console.error('Load records failed:', err);
+    } finally { if (!cancelled.current) setLoading(false); }
   }
 
   async function loadReport() {
@@ -251,7 +259,9 @@ export default function AttendancePage() {
       if (cancelled.current) return;
       setRecords(data || []);
       if (count !== null) setTotalRecords(count);
-    } catch {} finally { if (!cancelled.current) setLoading(false); }
+    } catch (err) {
+      console.error('Load report failed:', err);
+    } finally { if (!cancelled.current) setLoading(false); }
   }
 
   async function handleCheckIn() {

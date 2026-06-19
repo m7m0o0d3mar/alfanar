@@ -4,7 +4,7 @@ import { supabase } from '../services/supabase';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Building2, MapPin, Layers, Navigation, Search, List, Grid3X3 } from 'lucide-react';
+import { Building2, MapPin, List, Grid3X3 } from 'lucide-react';
 
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -54,7 +54,7 @@ function MapBoundsUpdater({ projects }: { projects: MapProject[] }) {
   const map = useMap();
   useEffect(() => {
     if (projects.length > 0) {
-      const valid = projects.filter((p): p is MapProject & { lat: number; lng: number } => p.lat != null && p.lng != null);
+      const valid = projects.filter((p): p is MapProject & { lat: number; lng: number } => Number.isFinite(p.lat) && Number.isFinite(p.lng));
       if (valid.length > 0) {
         const bounds = L.latLngBounds(valid.map((p) => [p.lat, p.lng]));
         map.fitBounds(bounds, { padding: [50, 50] });
@@ -117,7 +117,11 @@ export default function MapsPage() {
   }
   function extractLng(location: string): number {
     const parts = location.split(',');
-    return parts[1] ? parseFloat(parts[1]) : 46.75;
+    if (parts[1]) {
+      const val = parseFloat(parts[1]);
+      return isNaN(val) ? 46.75 : val;
+    }
+    return 46.75;
   }
 
   const filteredProjects = projects.filter((p) =>

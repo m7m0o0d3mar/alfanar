@@ -280,6 +280,7 @@ export default function ExecutionPage() {
     try {
       const payload: Record<string, unknown> = {
         project_id: wirForm.project_id,
+        wir_no: wirForm.wir_no || `WIR-${Date.now().toString(36).toUpperCase()}`,
         title_en: wirForm.title_en,
         title_ar: wirForm.title_ar || null,
         location: wirForm.location || null,
@@ -298,7 +299,6 @@ export default function ExecutionPage() {
         qc_engineer_id: wirForm.qc_engineer_id || null,
         consultant_engineer_id: wirForm.consultant_engineer_id || null,
       };
-      if (wirForm.wir_no) payload.wir_no = wirForm.wir_no;
       if (wirForm.activity_id) payload.activity_id = wirForm.activity_id;
       if (wirForm.item_definition_id) payload.item_definition_id = wirForm.item_definition_id;
       try {

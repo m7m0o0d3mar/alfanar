@@ -153,13 +153,13 @@ export default function HRPage() {
   async function savePayroll() {
     setFormError('');
     if (!payrollForm.project_id) { setFormError('Project is required'); return; }
-    if (!payrollForm.payroll_code.trim()) { setFormError('Payroll Code is required'); return; }
     setSaving(true);
     try {
+      const code = payrollForm.payroll_code.trim() || `PR-${payrollForm.period_start?.slice(0, 7) || '0000-00'}-${Date.now().toString(36).toUpperCase()}`;
       const { error } = await supabase.from('payroll_runs').insert({
-        project_id: payrollForm.project_id, payroll_code: payrollForm.payroll_code,
+        project_id: payrollForm.project_id, payroll_code: code,
         period_start: payrollForm.period_start, period_end: payrollForm.period_end || payrollForm.period_start,
-        status: 'draft', total_amount: totalAmount, total_salaries: 0, total_deductions: 0, total_allowances: 0, net_total: 0,
+        status: 'draft', total_amount: totalAmount, total_salaries: totalAmount, total_deductions: 0, total_allowances: 0, net_total: totalAmount,
       });
       if (error) throw error;
       toast.success(`Payroll "${payrollForm.payroll_code}" created`);

@@ -50,7 +50,9 @@ export default function RolesPage() {
       const map: Record<string, Record<string, unknown>> = {};
       data.forEach((r) => { map[r.role] = { ...r.permissions }; });
       setEditPerms(map);
-    } catch { /* ignore */ } finally { setLoading(false); }
+    } catch (err) {
+      console.error('Load roles failed:', err);
+    } finally { setLoading(false); }
   }
 
   async function seedDefaultRoles() {

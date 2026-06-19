@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { useT } from '../hooks/useTranslation';
-import { X, ChevronDown, LogOut, PanelLeftClose, PanelLeft, LayoutDashboard, Building2, Grid3X3, HardHat, ShieldCheck, Users, ShoppingCart, DollarSign, FileText, CheckSquare, FolderOpen, Settings, Wrench, TrendingUp, Database, UserCog, Palette, Terminal, Warehouse, Contact, CalendarRange, Briefcase, Sparkles, Clock, Map, Grip, Cog } from 'lucide-react';
+import { X, ChevronDown, LogOut, PanelLeftClose, PanelLeft, LayoutDashboard, Building2, Grid3X3, HardHat, ShieldCheck, Users, ShoppingCart, DollarSign, FileText, CheckSquare, FolderOpen, Settings, Wrench, TrendingUp, UserCog, Palette, Terminal, Warehouse, Contact, CalendarRange, Briefcase, Clock, Map, Cog } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 const iconMap: Record<string, LucideIcon> = {

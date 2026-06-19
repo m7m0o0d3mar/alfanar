@@ -33,7 +33,11 @@ export const authApi = {
   onAuthChange: (callback: (event: string, session: unknown) => void) =>
     supabase.auth.onAuthStateChange(callback),
   getProfile: async (userId: string) => {
-    const { data } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
+    const { data, error } = await supabase.from('user_profiles').select('*').eq('id', userId).single();
+    if (error) {
+      console.error('getProfile error:', error);
+      return null;
+    }
     return data as UserProfile | null;
   },
 };
@@ -52,13 +56,21 @@ export const userProjectsApi = {
 // ── System Settings ──
 export const settingsApi = {
   getAll: async () => {
-    const { data } = await supabase.from('system_settings').select('*');
+    const { data, error } = await supabase.from('system_settings').select('*');
+    if (error) {
+      console.error('settingsApi.getAll error:', error);
+      return {} as unknown as SystemSettings;
+    }
     const map: Record<string, unknown> = {};
     (data || []).forEach((r: { key: string; value: unknown }) => { map[r.key] = r.value; });
     return map as unknown as SystemSettings;
   },
   get: async (key: string) => {
-    const { data } = await supabase.from('system_settings').select('value').eq('key', key).single();
+    const { data, error } = await supabase.from('system_settings').select('value').eq('key', key).single();
+    if (error) {
+      console.error('settingsApi.get error:', error);
+      return undefined;
+    }
     return data?.value;
   },
   set: async (key: string, value: unknown) => {
@@ -76,7 +88,11 @@ export const modulesApi = {
     return (data || []) as Module[];
   },
   get: async (code: string) => {
-    const { data } = await supabase.from('modules').select('*').eq('code', code).single();
+    const { data, error } = await supabase.from('modules').select('*').eq('code', code).single();
+    if (error) {
+      console.error('modulesApi.get error:', error);
+      return null;
+    }
     return data as Module | null;
   },
   upsert: async (module: Partial<Module>) => {
@@ -228,7 +244,11 @@ export const projectsApi = {
     return (data || []) as Project[];
   },
   get: async (id: string) => {
-    const { data } = await supabase.from('projects').select('*').eq('id', id).single();
+    const { data, error } = await supabase.from('projects').select('*').eq('id', id).single();
+    if (error) {
+      console.error('projectsApi.get error:', error);
+      return null;
+    }
     return data as Project | null;
   },
 };

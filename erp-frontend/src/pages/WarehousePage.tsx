@@ -84,12 +84,17 @@ export default function WarehousePage() {
           try {
             const r = await supabase.from('stock_movements').select('*, materials(code, name_en), warehouses(code, name_en)').limit(200);
             d1 = r.data;
-          } catch { d1 = null; }
+          } catch (err) {
+            console.error('Stock movements with joins failed:', err);
+            d1 = null;
+          }
           if (d1 && d1.length > 0) return { data: d1, error: null };
           try {
             const r = await supabase.from('stock_movements').select('*').limit(200);
             if (r.data && r.data.length > 0) return { data: r.data.map((m: Record<string, unknown>) => ({ ...m, materials: null, warehouses: null })), error: null };
-          } catch { /* ignore */ }
+          } catch (err) {
+            console.error('Stock movements fallback failed:', err);
+          }
           const { data: d2 } = await supabase.from('warehouse_movements').select('*').limit(200);
           return { data: d2 || [], error: null };
         })() : Promise.resolve({ data: [] }),

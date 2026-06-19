@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { modulesApi, statusesApi, workflowsApi, customFieldsApi, kpiApi } from '../services/api';
+import { modulesApi, statusesApi, customFieldsApi } from '../services/api';
 import { supabase } from '../services/supabase';
 import type { Module, StatusDefinition, CustomField, Project } from '../types';
 import { useAuth } from '../context/AuthContext';

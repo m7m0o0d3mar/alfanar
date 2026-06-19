@@ -49,7 +49,7 @@ async function resolveUUID(seg: string, prevSeg: string): Promise<string | null>
   try {
     const { data } = await supabase.from(entity.table).select(entity.nameField).eq('id', seg).single();
     if (data) return String((data as unknown as Record<string, unknown>)[entity.nameField] ?? '');
-  } catch {}
+  } catch { /* entity not found */ }
   return null;
 }
 

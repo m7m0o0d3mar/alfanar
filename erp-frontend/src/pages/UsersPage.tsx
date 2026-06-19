@@ -30,7 +30,9 @@ export default function UsersPage() {
     try {
       const data = await usersApi.list();
       setUsers(data);
-    } catch { /* ignore */ } finally { setLoading(false); }
+    } catch (err) {
+      console.error('Load users failed:', err);
+    } finally { setLoading(false); }
   }
 
   async function handleInvite(e: React.FormEvent) {

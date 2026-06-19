@@ -98,7 +98,15 @@ export default function GanttChart({ projects, phases, wbsNodes, tasks, dependen
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [hoveredTask, setHoveredTask] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<{ taskId: string; start: Date; end: Date } | null>(null);
-  const dragState = useRef<{ type: 'move' | 'resize-start' | 'resize-end'; taskId: string; startX: number; originalStart: Date; originalEnd: Date } | null>(null);
+  const dragState = useRef<{
+    type: 'move' | 'resize-start' | 'resize-end';
+    taskId: string;
+    startX: number;
+    originalStart: Date;
+    originalEnd: Date;
+    onMove: ((ev: MouseEvent) => void) | null;
+    onUp: ((ev: MouseEvent) => void) | null;
+  } | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const ganttRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -106,6 +114,8 @@ export default function GanttChart({ projects, phases, wbsNodes, tasks, dependen
   useEffect(() => {
     return () => {
       if (dragState.current) {
+        if (dragState.current.onMove) document.removeEventListener('mousemove', dragState.current.onMove);
+        if (dragState.current.onUp) document.removeEventListener('mouseup', dragState.current.onUp);
         dragState.current = null;
         setDragPreview(null);
       }
@@ -288,7 +298,7 @@ export default function GanttChart({ projects, phases, wbsNodes, tasks, dependen
     e.stopPropagation();
     const start = parseDate(task.start_date) || dateRange.start;
     const end = parseDate(task.end_date) || addDays(start, 30);
-    dragState.current = { type, taskId: task.id, startX: e.clientX, originalStart: start, originalEnd: end };
+    dragState.current = { type, taskId: task.id, startX: e.clientX, originalStart: start, originalEnd: end, onMove: null, onUp: null };
 
     const onMove = (ev: MouseEvent) => {
       if (!dragState.current) return;
@@ -340,6 +350,10 @@ export default function GanttChart({ projects, phases, wbsNodes, tasks, dependen
 
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    if (dragState.current) {
+      dragState.current.onMove = onMove;
+      dragState.current.onUp = onUp;
+    }
   }, [dateRange, dayWidth, onUpdateTask]);
 
   // Month labels + week/day grid

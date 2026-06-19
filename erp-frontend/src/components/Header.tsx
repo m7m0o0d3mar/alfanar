@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { useTheme } from '../context/ThemeContext';
 import { useT } from '../hooks/useTranslation';
-import { Search, Moon, Sun, Globe, LogOut, Sparkles, Bell, User, Settings, Menu, Eye, EyeOff } from 'lucide-react';
+import { Search, Globe, LogOut, Sparkles, Settings, Menu, Eye, EyeOff } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import AiAssistant from './AiAssistant';
 import type { UserRole } from '../types';
