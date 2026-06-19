@@ -46,7 +46,7 @@ export default function ProcurementPage() {
     if (showForm) overlayRef.current?.focus();
   }, [showForm]);
 
-  const emptyForm = { po_no: '', title: '', project_id: '', supplier_id: '', order_date: new Date().toISOString().slice(0, 10), status: 'draft', currency: 'SAR', total_amount: '', grand_total: '', delivery_date: '', payment_terms: '', notes: '' };
+  const emptyForm = { po_no: '', title: '', project_id: '', supplier_id: '', order_date: new Date().toISOString().slice(0, 10), status: 'draft', currency: 'SAR', total_amount: '', grand_total: '', delivery_date: '', notes: '' };
   const [form, setForm] = useState(emptyForm);
   const emptySupplierForm = { supplier_code: '', name_en: '', name_ar: '', phone: '', email: '', address: '', cr_number: '', vat_number: '', contact_person: '' };
   const [supplierForm, setSupplierForm] = useState(emptySupplierForm);
@@ -88,7 +88,7 @@ export default function ProcurementPage() {
         const { error } = await supabase.from('purchase_orders').insert({
           po_no: form.po_no, title: form.title, project_id: form.project_id,
           supplier_id: form.supplier_id, order_date: form.order_date,
-          delivery_date: form.delivery_date || null, payment_terms: form.payment_terms || null,
+          delivery_date: form.delivery_date || null,
           notes: form.notes || null,
           total_amount: form.total_amount ? parseFloat(form.total_amount) : 0,
           grand_total: form.grand_total ? parseFloat(form.grand_total) : 0,
@@ -275,8 +275,8 @@ export default function ProcurementPage() {
                     <div><label className="label">Delivery Date</label><input type="date" className="input" value={form.delivery_date} onChange={(e) => setForm({ ...form, delivery_date: e.target.value })} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div><label className="label">Payment Terms</label><input className="input" value={form.payment_terms} onChange={(e) => setForm({ ...form, payment_terms: e.target.value })} /></div>
                     <div><label className="label">Total Amount</label><input type="number" className="input" value={form.total_amount} onChange={(e) => setForm({ ...form, total_amount: e.target.value })} /></div>
+                    <div><label className="label">Grand Total</label><input type="number" className="input" value={form.grand_total} onChange={(e) => setForm({ ...form, grand_total: e.target.value })} /></div>
                   </div>
                   <div><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
                   <div className="border-t pt-4">

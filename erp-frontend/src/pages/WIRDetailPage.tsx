@@ -10,7 +10,7 @@ interface WorkRequest {
   id: string; wir_no: string; title_en: string; title_ar: string;
   status: string; is_ncr: boolean; request_date: string;
   location: string; project_id: string; description: string;
-  discipline: string; inspection_date: string; contractor: string;
+  discipline: string; contractor: string;
   priority: string; requested_by: string; activity_id: string;
   inspector: string; ncr_reason: string;
   item_definition_id: string; unit_id: string;
@@ -437,7 +437,6 @@ export default function WIRDetailPage() {
             </div>
             <div><label className="label">Location</label><input className="input" value={form.location || ''} onChange={(e) => setForm({ ...form, location: e.target.value })} /></div>
             <div><label className="label">Discipline</label><input className="input" value={form.discipline || ''} onChange={(e) => setForm({ ...form, discipline: e.target.value })} /></div>
-            <div><label className="label">Inspection Date</label><input type="date" className="input" value={form.inspection_date || ''} onChange={(e) => setForm({ ...form, inspection_date: e.target.value })} /></div>
             <div><label className="label">Contractor</label><input className="input" value={form.contractor || ''} onChange={(e) => setForm({ ...form, contractor: e.target.value })} /></div>
             <div><label className="label">Inspector</label>
               <select className="input" value={form.inspector || ''} onChange={(e) => setForm({ ...form, inspector: e.target.value || undefined })}>
@@ -498,7 +497,6 @@ export default function WIRDetailPage() {
           <div className="card space-y-3">
             <h3 className="font-semibold" style={{ color: 'var(--color-text)' }}>Inspection & Team</h3>
             <div className="text-sm space-y-2">
-              <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Inspection Date</span><span>{wir.inspection_date || '-'}</span></div>
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Inspector</span><span>{wir.inspector ? (inspectors.find(i => i.id === wir.inspector)?.display_name || wir.inspector) : '-'}</span></div>
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>QC Engineer</span><span>{getProfileName(wir.qc_engineer_id)}</span></div>
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Consultant</span><span>{getProfileName(wir.consultant_engineer_id)}</span></div>

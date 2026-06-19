@@ -4,7 +4,7 @@ import { type Project, type UserProfile } from '../../pages/ExecutionPage';
 interface WirFormState {
   project_id: string; wir_no: string; title_en: string; title_ar: string;
   location: string; status: string; activity_id: string; item_definition_id: string;
-  unit_id: string; inspection_date: string; inspector: string; description: string;
+  unit_id: string; inspector: string; description: string;
   division: string; sub_division: string; activity: string; activity_weight: number;
   zone: string; block: string; qc_engineer_id: string; consultant_engineer_id: string;
 }
@@ -104,7 +104,6 @@ export default function WirFormModal({ show, projects, wrDivisions, wrSubDivisio
               <option value="rejected">rejected</option>
             </select>
           </div>
-          <div><label className="label">Inspection Date</label><input type="date" className="input" value={wirForm.inspection_date} onChange={(e) => onChange({ ...wirForm, inspection_date: e.target.value })} /></div>
           <div><label className="label">Inspector</label>
             <select className="input" value={wirForm.inspector} onChange={(e) => onChange({ ...wirForm, inspector: e.target.value })}>
               <option value="">-- Select Inspector --</option>

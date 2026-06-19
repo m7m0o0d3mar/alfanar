@@ -18,7 +18,7 @@ import ProgressTab from '../components/execution/ProgressTab';
 export interface WorkRequest {
   id: string; wir_no: string; title_en: string; title_ar: string;
   status: string; is_ncr: boolean; request_date: string;
-  location: string; project_id: string; inspection_date: string;
+  location: string; project_id: string;
   inspector: string; description: string;
   unit_id: string;
   division: string; sub_division: string; activity: string;
@@ -94,7 +94,7 @@ export default function ExecutionPage() {
   const [showWirForm, setShowWirForm] = useState(false);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [wirForm, setWirForm] = useState({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspection_date: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' });
+  const [wirForm, setWirForm] = useState({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' });
   const [taskForm, setTaskForm] = useState({ project_id: '', task_code: '', title_en: '', status: 'open', progress: 0, assigned_to: '', activity_id: '', division: '', sub_division: '', activity: '', zone: '', block: '', unit_id: '', priority: 'medium', target_date: '', description: '' });
   const [showItemForm, setShowItemForm] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -287,7 +287,6 @@ export default function ExecutionPage() {
         unit_id: wirForm.unit_id || null,
         status: wirForm.status || 'draft',
         request_date: new Date().toISOString().slice(0, 10),
-        inspection_date: wirForm.inspection_date || null,
         inspected_by: wirForm.inspector || null,
         description: wirForm.description || null,
         division: wirForm.division || null,
@@ -310,7 +309,7 @@ export default function ExecutionPage() {
       const { error } = await supabase.from('work_requests').insert(payload);
       if (error) throw error;
       toast.success(`Work Request created`);
-      setShowWirForm(false); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspection_date: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); load();
+      setShowWirForm(false); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); load();
     } catch (err: unknown) {
       console.error('WIR save error:', err);
       const msg = err instanceof Error ? err.message : 'Save failed';
@@ -569,7 +568,7 @@ export default function ExecutionPage() {
             </>
           )}
           {activeTab === 'wir' ? (
-            <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspection_date: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); setShowWirForm(true); }}><Plus size={16} /> {t('execution.new_wir')}</button>
+            <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); setShowWirForm(true); }}><Plus size={16} /> {t('execution.new_wir')}</button>
           ) : activeTab === 'items' ? (
             <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setEditingItemId(null); setItemForm({ project_id: '', division: '', sub_division: '', activity: '', activity_weight: 0, wbs_code: '', wbs_description: '', booked_budget: 0, open_budget: 0, budget_rate: 0, quantity: 0, unit_price: 0 }); setShowItemForm(true); }}><Plus size={16} /> New Item</button>
           ) : activeTab === 'tasks' ? (
@@ -631,7 +630,7 @@ export default function ExecutionPage() {
                 {loading ? (
                   <tr><td colSpan={99} className="text-center py-8 text-gray-400">{t('common.loading')}</td></tr>
                 ) : activeTab === 'wir' && filteredWirs.length === 0 ? (
-                  <EmptyState title="No WIRs found" description="Create a Work Inspection Request to start tracking inspections." actionLabel={t('execution.new_wir')} onAction={() => { setFormError(''); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspection_date: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); setShowWirForm(true); }} />
+                  <EmptyState title="No WIRs found" description="Create a Work Inspection Request to start tracking inspections." actionLabel={t('execution.new_wir')} onAction={() => { setFormError(''); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); setShowWirForm(true); }} />
                 ) : activeTab === 'tasks' && filteredTasks.length === 0 ? (
                   <EmptyState title="No Tasks found" description="Create a Work Task to start tracking project activities." actionLabel={t('execution.new_task')} onAction={() => { setFormError(''); setTaskForm({ project_id: '', task_code: '', title_en: '', status: 'open', progress: 0, assigned_to: '', activity_id: '', division: '', sub_division: '', activity: '', zone: '', block: '', unit_id: '', priority: 'medium', target_date: '', description: '' }); setShowTaskForm(true); }} />
                 ) : activeTab === 'items' && filteredItems.length === 0 ? (

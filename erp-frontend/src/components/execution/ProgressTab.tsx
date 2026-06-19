@@ -27,7 +27,7 @@ interface ComputedProgress {
 interface WorkRequest {
   id: string; wir_no: string; title_en: string; title_ar: string;
   status: string; is_ncr: boolean; request_date: string;
-  location: string; project_id: string; inspection_date: string;
+  location: string; project_id: string;
   inspector: string; description: string;
   unit_id: string;
   division: string; sub_division: string; activity: string;
@@ -239,7 +239,6 @@ export default function ProgressTab({
                       <div className="font-mono text-xs text-gray-500">{wr.wir_no}</div>
                       <div className="font-medium truncate">{wr.activity || '-'}</div>
                       <div className="text-xs text-gray-400">Unit: {wr.unit_id ? (units.find(u => u.id === wr.unit_id)?.unit_code || '-') : '-'}</div>
-                      <div className="text-xs text-gray-400">{wr.inspection_date || '-'}</div>
                     </div>
                   ))}
                 </div>
@@ -279,7 +278,6 @@ export default function ProgressTab({
                       <div className="font-mono text-xs text-gray-500">{wr.wir_no}</div>
                       <div className="font-medium truncate">{wr.activity || '-'}</div>
                       <div className="text-xs text-red-600 mt-1">Reason: {wr.rejection_reason || 'N/A'}</div>
-                      <div className="text-xs text-gray-400">{wr.inspection_date || '-'}</div>
                     </div>
                   ))}
                 </div>

@@ -10,13 +10,13 @@ import Pagination from '../components/Pagination';
 import ConfirmDialog from '../components/ConfirmDialog';
 
 interface Incident {
-  id: string; incident_no: string; title: string; incident_date: string;
-  incident_type: string; severity: string; location: string; status: string;
+  id: string; incident_no: string; incident_date: string;
+  incident_type: string; severity: string; location: string; status: string; description: string;
 }
 
 interface Observation {
   id: string; observation_no: string; description: string; observation_date: string;
-  observation_type: string; severity: string; location: string; status: string;
+  observation_type: string; location: string; status: string;
 }
 
 interface Project {
@@ -28,7 +28,7 @@ type HseRecord = Incident | Observation;
 function getField(record: HseRecord, tab: 'incidents' | 'observations'): { no: string; title: string; type: string; date: string } {
   if (tab === 'incidents') {
     const r = record as Incident;
-    return { no: r.incident_no, title: r.title, type: r.incident_type, date: r.incident_date };
+    return { no: r.incident_no, title: r.description, type: r.incident_type, date: r.incident_date };
   }
   const r = record as Observation;
   return { no: r.observation_no, title: r.description, type: r.observation_type, date: r.observation_date };
@@ -110,18 +110,17 @@ export default function HSEPage() {
       const payload: Record<string, unknown> = {
         project_id: form.project_id,
         [tab === 'observations' ? 'observation_no' : 'incident_no']: form.incident_no,
-        title: form.title,
         [tab === 'observations' ? 'observation_date' : 'incident_date']: form.incident_date || new Date().toISOString().slice(0, 10),
         location: form.location || null,
         description: form.description || form.title,
         status: 'reported',
-        reported_by: (await supabase.auth.getUser()).data.user?.id,
+        [tab === 'observations' ? 'observed_by' : 'reported_by']: (await supabase.auth.getUser()).data.user?.id,
       };
       if (tab === 'incidents') {
         payload.incident_type = form.incident_type;
         payload.severity = form.severity;
-        payload.injured_person = form.injured_person || null;
         payload.corrective_action = form.corrective_action || null;
+        if (form.injured_person) payload.description += `\nInjured Person: ${form.injured_person}`;
       } else {
         payload.observation_type = form.incident_type;
       }
@@ -157,7 +156,7 @@ export default function HSEPage() {
         table: 'safety_incidents',
         columns: [
           { key: 'incident_no', label: 'Incident No', required: true },
-          { key: 'title', label: 'Title', required: true },
+          { key: 'description', label: 'Description', required: true },
           { key: 'incident_date', label: 'Date' },
           { key: 'incident_type', label: 'Type' },
           { key: 'severity', label: 'Severity' },
@@ -230,7 +229,7 @@ export default function HSEPage() {
                     <td className="font-medium">{title}</td>
                     <td className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{date}</td>
                     <td className="text-sm capitalize">{type?.replace(/_/g, ' ')}</td>
-                    {tab === 'incidents' && <td><span className={`badge capitalize ${i.severity === 'critical' ? 'badge-danger' : i.severity === 'high' ? 'badge-warning' : i.severity === 'medium' ? 'badge-warning' : 'badge-success'}`}>{i.severity}</span></td>}
+                    {tab === 'incidents' && <td><span className={`badge capitalize ${(i as Incident).severity === 'critical' ? 'badge-danger' : (i as Incident).severity === 'high' ? 'badge-warning' : (i as Incident).severity === 'medium' ? 'badge-warning' : 'badge-success'}`}>{(i as Incident).severity}</span></td>}
                      <td><button className="btn-sm btn-secondary" onClick={() => toast.info('Full page view coming soon')}><Eye size={14} /></button><button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: tab === 'incidents' ? 'safety_incidents' : 'safety_observations', id: i.id, label: no }); }}><Trash2 size={14} /></button></td>
                    </tr>
                   );
