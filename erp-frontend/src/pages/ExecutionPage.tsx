@@ -288,7 +288,7 @@ export default function ExecutionPage() {
         status: wirForm.status || 'draft',
         request_date: new Date().toISOString().slice(0, 10),
         inspection_date: wirForm.inspection_date || null,
-        inspector: wirForm.inspector || null,
+        inspected_by: wirForm.inspector || null,
         description: wirForm.description || null,
         division: wirForm.division || null,
         sub_division: wirForm.sub_division || null,

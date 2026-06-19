@@ -80,16 +80,21 @@ export default function DashboardPage() {
     setKpiData(defaultCards);
 
     try {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+
       const [projectCount, wirCount, ncrCount, empCount, poCount] = await Promise.all([
         supabase.from('projects').select('id', { count: 'exact', head: true }).in('status', ['planning', 'active', 'in_progress', 'execution']),
-        supabase.from('work_requests').select('id', { count: 'exact', head: true }).in('status', ['draft', 'submitted']),
+        supabase.from('work_requests').select('id', { count: 'exact', head: true }).not('status', 'in', '("approved","rejected","cancelled")'),
         supabase.from('work_requests').select('id', { count: 'exact', head: true }).eq('is_ncr', true),
         supabase.from('employees').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-        supabase.from('purchase_orders').select('id', { count: 'exact', head: true }).in('status', ['Pending', 'pending', 'draft', 'submitted']),
+        supabase.from('purchase_orders').select('id', { count: 'exact', head: true }).in('status', ['pending', 'draft', 'submitted']),
       ]);
 
-      const payrollRes = await supabase.from('payroll_runs').select('net_total, total_amount');
-      const monthlyPayroll = (payrollRes.data || []).reduce((sum, r) => sum + Number(r.net_total || r.total_amount || 0), 0);
+      const payrollRes = await supabase.from('payroll_runs').select('net_total, total_amount')
+        .gte('period_start', monthStart).lte('period_end', monthEnd);
+      const monthlyPayroll = (payrollRes.data || []).reduce((sum, r) => sum + Number(r.net_total ?? r.total_amount ?? 0), 0);
 
       setKpiData([
         { icon: Building2, label: 'Total Projects', value: String(projectCount.count ?? 0), colorKey: 'blue', loading: false, onClick: () => navigate('/projects') },

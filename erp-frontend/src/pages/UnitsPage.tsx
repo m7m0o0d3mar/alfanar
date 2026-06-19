@@ -29,11 +29,11 @@ interface Project {
 }
 
 interface Employee {
-  id: string; full_name: string; employee_code: string;
+  id: string; full_name_en: string; employee_code: string;
 }
 
 interface Commission {
-  id: string; name: string;
+  id: string; commission_name_en: string;
 }
 
 const defaultForm = {
@@ -77,8 +77,8 @@ export default function UnitsPage() {
       const [unitsRes, projectsRes, employeesRes, commissionsRes] = await Promise.all([
         supabase.from('units').select('*, projects(name_en, project_code)').order('unit_code'),
         supabase.from('projects').select('id, name_en, project_code').eq('is_active', true).order('name_en'),
-        supabase.from('employees').select('id, full_name, employee_code').eq('is_active', true).order('full_name'),
-        supabase.from('commissions').select('*').order('name'),
+        supabase.from('employees').select('id, full_name_en, employee_code').eq('is_active', true).order('full_name_en'),
+        supabase.from('commissions').select('*').order('commission_name_en'),
       ]);
       setUnits((unitsRes.data || []) as Unit[]);
       setProjects((projectsRes.data || []) as Project[]);
@@ -308,11 +308,11 @@ export default function UnitsPage() {
               </select></div>
               <div><label className="label">Salesperson</label><select className="input" value={form.salesperson_id ?? ''} onChange={(e) => setForm({ ...form, salesperson_id: e.target.value || null })}>
                 <option value="">-- Select --</option>
-                {employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.full_name} ({emp.employee_code})</option>)}
+                {employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.full_name_en} ({emp.employee_code})</option>)}
               </select></div>
               <div><label className="label">Commission</label><select className="input" value={form.commission_id ?? ''} onChange={(e) => setForm({ ...form, commission_id: e.target.value || null })}>
                 <option value="">-- Select --</option>
-                {commissions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {commissions.map((c) => <option key={c.id} value={c.id}>{c.commission_name_en}</option>)}
               </select></div>
               <div><label className="label">Update Date</label><input className="input" value={form.update_date ?? ''} disabled /></div>
               <div className="col-span-2"><label className="label">Notes</label><textarea className="input" rows={3} value={form.notes ?? ''} onChange={(e) => setForm({ ...form, notes: e.target.value || null })} /></div>
@@ -377,8 +377,8 @@ export default function UnitsPage() {
 
               <div className="text-gray-500 font-medium col-span-2 border-b pb-1 mb-1 mt-2">Sales Info</div>
               <div className="text-gray-500">Sale Type:</div><div className="font-medium capitalize">{detailUnit.sale_type || '-'}</div>
-              <div className="text-gray-500">Salesperson:</div><div className="font-medium">{(() => { const sp = detailUnit.salesperson_id ? employees.find(e => e.id === detailUnit.salesperson_id) : null; return sp ? `${sp.full_name} (${sp.employee_code})` : detailUnit.salesperson_id || '-'; })()}</div>
-              <div className="text-gray-500">Commission:</div><div className="font-medium">{(() => { const c = detailUnit.commission_id ? commissions.find(c => c.id === detailUnit.commission_id) : null; return c?.name || '-'; })()}</div>
+              <div className="text-gray-500">Salesperson:</div><div className="font-medium">{(() => { const sp = detailUnit.salesperson_id ? employees.find(e => e.id === detailUnit.salesperson_id) : null; return sp ? `${sp.full_name_en} (${sp.employee_code})` : detailUnit.salesperson_id || '-'; })()}</div>
+              <div className="text-gray-500">Commission:</div><div className="font-medium">{(() => { const c = detailUnit.commission_id ? commissions.find(c => c.id === detailUnit.commission_id) : null; return c?.commission_name_en || '-'; })()}</div>
 
               <div className="text-gray-500 font-medium col-span-2 border-b pb-1 mb-1 mt-2">Dates & Notes</div>
               <div className="text-gray-500">Handover Date:</div><div className="font-medium">{detailUnit.handover_date || '-'}</div>

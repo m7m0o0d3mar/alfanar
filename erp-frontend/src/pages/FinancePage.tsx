@@ -81,8 +81,8 @@ export default function FinancePage() {
 
   async function autoCreateInvoicesFromPOs() {
     const approvedPos = pos.filter(p => p.status === 'Approved' || p.status === 'approved' || p.status === 'Paid' || p.status === 'paid');
-    const existingPoNos = new Set(invoices.map(i => i.po_no).filter(Boolean));
-    const toCreate = approvedPos.filter(p => !existingPoNos.has(p.po_no));
+    const existingInvoiceNos = new Set(invoices.map(i => i.invoice_no).filter(Boolean));
+    const toCreate = approvedPos.filter(p => !existingInvoiceNos.has(`INV-${p.po_no}`));
     if (toCreate.length === 0) {
       toast.info('All approved POs already have invoices.');
       return;
@@ -94,7 +94,7 @@ export default function FinancePage() {
       try {
         const { error } = await supabase.from('contract_invoices').insert({
           invoice_no: invoiceNo, invoice_type: 'progress',
-          po_no: po.po_no, amount: po.total_amount || 0,
+          amount: po.total_amount || 0,
           invoice_date: new Date().toISOString().slice(0, 10),
           status: 'draft', notes: `Auto-created from PO ${po.po_no}`,
         });
@@ -119,7 +119,7 @@ export default function FinancePage() {
           contract_id: form.contract_id || contracts[0]?.id || null,
           invoice_date: form.invoice_date, amount: form.amount ? parseFloat(form.amount) : 0,
           due_date: form.due_date || null, notes: form.notes || null,
-          po_no: form.po_no || null, status: 'draft',
+          status: 'draft',
         });
         if (error) throw error;
         toast.success(`Invoice "${form.invoice_no}" created`);
@@ -148,7 +148,6 @@ export default function FinancePage() {
     { key: 'invoice_no', label: 'Invoice No', required: true },
     { key: 'invoice_type', label: 'Invoice Type' },
     { key: 'contract_id', label: 'Contract ID' },
-    { key: 'po_no', label: 'PO No' },
     { key: 'amount', label: 'Amount', type: 'number' as const },
     { key: 'invoice_date', label: 'Invoice Date', required: true },
     { key: 'due_date', label: 'Due Date' },
@@ -244,7 +243,7 @@ export default function FinancePage() {
                 : (filtered as Invoice[]).slice((page - 1) * pageSize, page * pageSize).map(inv => (
                     <tr key={inv.id}>
                       <td className="font-mono text-xs">{inv.invoice_no}</td>
-                      <td className="font-mono text-xs">{inv.po_no || '-'}</td>
+                      <td className="font-mono text-xs">{inv.invoice_no?.startsWith('INV-') ? inv.invoice_no.slice(4) : '-'}</td>
                       <td className="font-mono text-xs">{Number(inv.amount || 0).toLocaleString()} SAR</td>
                       <td className="text-sm">{inv.invoice_date}</td>
                       <td className="text-sm">{inv.due_date || '-'}</td>

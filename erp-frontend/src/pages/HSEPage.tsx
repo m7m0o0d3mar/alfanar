@@ -109,19 +109,21 @@ export default function HSEPage() {
       const tbl = tab === 'incidents' ? 'safety_incidents' : 'safety_observations';
       const payload: Record<string, unknown> = {
         project_id: form.project_id,
-        incident_no: form.incident_no,
+        [tab === 'observations' ? 'observation_no' : 'incident_no']: form.incident_no,
         title: form.title,
-        incident_date: form.incident_date || new Date().toISOString().slice(0, 10),
+        [tab === 'observations' ? 'observation_date' : 'incident_date']: form.incident_date || new Date().toISOString().slice(0, 10),
         location: form.location || null,
         description: form.description || form.title,
         status: 'reported',
         reported_by: (await supabase.auth.getUser()).data.user?.id,
       };
-      payload.incident_type = form.incident_type;
-      payload.severity = form.severity;
       if (tab === 'incidents') {
+        payload.incident_type = form.incident_type;
+        payload.severity = form.severity;
         payload.injured_person = form.injured_person || null;
         payload.corrective_action = form.corrective_action || null;
+      } else {
+        payload.observation_type = form.incident_type;
       }
       const { error } = await supabase.from(tbl).insert(payload);
       if (error) throw error;

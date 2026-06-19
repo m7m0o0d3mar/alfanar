@@ -16,7 +16,8 @@ interface ResourceEquipment {
 }
 
 interface ResourceContractor {
-  id: string; company_name: string; contract_type: string; status: string;
+  id: string; company_id: string; contractor_type: string; is_approved: boolean;
+  companies?: { name_en: string };
 }
 
 const tabs: { key: TabKey; label: string; icon: typeof Users }[] = [
@@ -42,7 +43,7 @@ export default function ResourcesPage() {
     Promise.all([
       supabase.from('employees').select('id, full_name_en, job_title, employee_type').limit(50).then(r => ({ data: r.data || [], error: r.error })),
       supabase.from('equipment').select('id, name, type, status').limit(50).then(r => ({ data: r.data || [], error: r.error })),
-      supabase.from('contractors').select('id, company_name, contract_type, status').limit(50).then(r => ({ data: r.data || [], error: r.error })),
+      supabase.from('contractors').select('*, companies(name_en)').limit(50).then(r => ({ data: r.data || [], error: r.error })),
     ]).then(([empRes, eqRes, conRes]) => {
       if (!empRes.error && empRes.data) setPeople(empRes.data);
       if (!eqRes.error && eqRes.data) setEquipment(eqRes.data);
@@ -142,9 +143,9 @@ export default function ResourcesPage() {
                 <tr><td colSpan={4} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>No contractors registered</td></tr>
               ) : contractors.slice((page - 1) * pageSize, page * pageSize).map((c) => (
                 <tr key={c.id}>
-                  <td className="font-medium">{c.company_name}</td>
-                  <td>{c.contract_type || '—'}</td>
-                  <td><span className={`badge ${c.status === 'active' ? 'badge-success' : 'badge-neutral'}`}>{c.status}</span></td>
+                  <td className="font-medium">{c.companies?.name_en || c.company_id?.slice(0, 8) || '—'}</td>
+                  <td>{c.contractor_type || '—'}</td>
+                  <td><span className={`badge ${c.is_approved ? 'badge-success' : 'badge-neutral'}`}>{c.is_approved ? 'Active' : 'Inactive'}</span></td>
                   <td><button className="btn btn-xs btn-ghost">View</button></td>
                 </tr>
               ))}
