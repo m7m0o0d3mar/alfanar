@@ -15,4 +15,4 @@ dist/
 Thumbs.db
 
 ## Logs
-*.log
+supabase/.temp/
