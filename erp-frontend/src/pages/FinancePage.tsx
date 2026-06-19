@@ -97,13 +97,15 @@ export default function FinancePage() {
           amount: po.total_amount || 0,
           invoice_date: new Date().toISOString().slice(0, 10),
           status: 'draft', notes: `Auto-created from PO ${po.po_no}`,
+          po_no: po.po_no,
         });
         if (!error) created++;
       } catch (err) {
         console.error('Auto-create invoice failed:', err);
       }
     }
-    toast.success(`Created ${created} invoice(s) from approved POs`);
+    toast.success(`Created ${created} of ${toCreate.length} invoice(s) from approved POs`);
+    if (created < toCreate.length) toast.info(`${toCreate.length - created} invoice(s) failed to create`);
     load();
     setSaving(false);
   }
@@ -111,6 +113,7 @@ export default function FinancePage() {
   async function save() {
     setFormError('');
     if (!form.invoice_no.trim() && activeTab !== 'budget_vs_actual') { setFormError('Code is required'); return; }
+    if (activeTab === 'invoices' && !form.contract_id) { setFormError('Contract is required'); return; }
     setSaving(true);
     try {
       if (activeTab === 'invoices') {
@@ -119,6 +122,7 @@ export default function FinancePage() {
           contract_id: form.contract_id || null,
           invoice_date: form.invoice_date, amount: form.amount ? parseFloat(form.amount) : 0,
           due_date: form.due_date || null, notes: form.notes || null,
+          po_no: form.po_no || null,
           status: 'draft',
         });
         if (error) throw error;
@@ -356,7 +360,7 @@ export default function FinancePage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowForm(false)}>
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="rounded-xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: 'var(--color-surface)' }} onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">{activeTab === 'invoices' ? 'New Invoice' : 'New Budget Entry'}</h3>
             {formError && <div className="mb-4 p-3 rounded-lg text-sm" style={{backgroundColor: 'color-mix(in srgb, var(--color-danger) 10%, transparent)', color: 'var(--color-danger)'}}>{formError}</div>}
             <div className="space-y-4">

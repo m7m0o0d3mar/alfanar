@@ -25,7 +25,7 @@ export default function ItemFormModal({ show, projects, itemForm, formError, sav
   if (!show) return null;
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => { onClose(); }}>
-      <div className="bg-white rounded-xl p-6 w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="rounded-xl p-6 w-full max-w-2xl shadow-2xl max-h-[85vh] overflow-y-auto" style={{ backgroundColor: 'var(--color-surface)' }} onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold mb-4">{editingItemId ? 'Edit' : 'Create'} Item Definition</h3>
         {formError && <div className="mb-4 p-3 rounded-lg text-sm" style={{backgroundColor: 'color-mix(in srgb, var(--color-danger) 10%, transparent)', color: 'var(--color-danger)'}}>{formError}</div>}
         <div className="grid grid-cols-2 gap-4">

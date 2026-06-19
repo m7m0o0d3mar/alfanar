@@ -268,7 +268,7 @@ export default function UnitsPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowForm(false)}>
-          <div className="bg-white rounded-xl p-6 w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="rounded-xl p-6 w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: 'var(--color-surface)' }} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">{editing ? 'Edit Unit' : 'Create Unit'}</h3>
             {formError && <div className="mb-4 p-3 rounded-lg text-sm" style={{backgroundColor: 'color-mix(in srgb, var(--color-danger) 10%, transparent)', color: 'var(--color-danger)'}}>{formError}</div>}
             <div className="grid grid-cols-2 gap-4">
@@ -345,7 +345,7 @@ export default function UnitsPage() {
 
       {detailUnit && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setDetailUnit(null)}>
-          <div className="bg-white rounded-xl p-6 w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="rounded-xl p-6 w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: 'var(--color-surface)' }} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">Unit Details — {detailUnit.unit_code}</h3>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="text-gray-500 font-medium col-span-2 border-b pb-1 mb-1">General</div>

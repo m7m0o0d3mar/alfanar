@@ -236,7 +236,7 @@ export default function UsersPage() {
                     });
                     loadUsers();
                   } catch (err: unknown) {
-                    alert(err instanceof Error ? err.message : 'Update failed');
+                    toast.error(err instanceof Error ? err.message : 'Update failed');
                   }
                   setEditing(null);
                 }}>

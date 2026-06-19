@@ -311,7 +311,7 @@ export default function SalesPage() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowForm(false)}>
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="rounded-xl p-6 w-full max-w-lg shadow-2xl" style={{ backgroundColor: 'var(--color-surface)' }} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">New {tab === 'unit_sales' ? 'Sale' : tab === 'leads' ? 'Lead' : 'Customer'}</h3>
             {formError && <div className="mb-4 p-3 rounded-lg text-sm" style={{backgroundColor: 'color-mix(in srgb, var(--color-danger) 10%, transparent)', color: 'var(--color-danger)'}}>{formError}</div>}
             <div className="space-y-4">
@@ -357,7 +357,7 @@ export default function SalesPage() {
 
       {detailLead && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setDetailLead(null)}>
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="rounded-xl p-6 w-full max-w-lg shadow-2xl" style={{ backgroundColor: 'var(--color-surface)' }} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">{editLeadMode ? 'Edit Lead' : 'Lead Details'}</h3>
             <div className="space-y-3">
               {Object.entries(detailLead).filter(([k]) => !['id', 'created_at', 'updated_at'].includes(k)).map(([key, val]) => (

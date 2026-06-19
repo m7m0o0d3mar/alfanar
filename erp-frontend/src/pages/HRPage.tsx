@@ -52,7 +52,7 @@ export default function HRPage() {
   useEffect(() => { setPage(1); load(); }, [tab]);
 
   useEffect(() => {
-    if (!payrollForm.period_start) return;
+    if (!payrollForm.period_start || !payrollForm.project_id) return;
     (async () => {
       try {
         const { data: emps } = await supabase.from('employees').select('basic_salary').eq('project_id', payrollForm.project_id);
@@ -60,9 +60,10 @@ export default function HRPage() {
         if (payrollForm.period_start && payrollForm.period_end) {
           const start = new Date(payrollForm.period_start);
           const end = new Date(payrollForm.period_end);
+          if (isNaN(start.getTime()) || isNaN(end.getTime())) { setTotalAmount(0); return; }
           const days = Math.max(1, (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
           const months = days / 30.44;
-          setTotalAmount(Math.round(sum * months));
+          setTotalAmount(Math.round(sum * months) || 0);
         } else {
           setTotalAmount(sum);
         }
