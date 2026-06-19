@@ -21,7 +21,7 @@ interface AuditEntry {
   table_name: string; record_id: string;
   old_data: Record<string, unknown>; new_data: Record<string, unknown>;
   changed_at: string;
-  user_profile?: { display_name: string; full_name_en: string } | null;
+  user_profile?: { full_name_en: string } | null;
 }
 
 interface Unit { id: string; unit_code: string; unit_type: string; status: string; price: number; bedrooms: number; }
@@ -46,7 +46,7 @@ export default function ProjectDetailPage() {
   const [tab, setTab] = useState<'overview' | 'units' | 'documents' | 'history'>('overview');
   const [units, setUnits] = useState<Unit[]>([]);
   const [projectDocs, setProjectDocs] = useState<ProjectDocument[]>([]);
-  const [userProfiles, setUserProfiles] = useState<{ id: string; display_name: string; full_name_en: string }[]>([]);
+  const [userProfiles, setUserProfiles] = useState<{ id: string; full_name_en: string }[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -58,14 +58,14 @@ export default function ProjectDetailPage() {
       supabase.from('projects').select('*').eq('id', id).single(),
       supabase.from('units').select('*').eq('project_id', id).limit(10),
       supabase.from('documents').select('*').eq('project_id', id).order('uploaded_at', { ascending: false }).limit(5),
-      supabase.from('user_profiles').select('id, display_name, full_name_en').order('full_name_en'),
+      supabase.from('user_profiles').select('id, full_name_en').order('full_name_en'),
     ]).then(([projRes, unitsRes, docRes, profilesRes]) => {
       if (projRes.error) throw new Error(projRes.error.message);
       setProject(projRes.data as Project | null);
       setForm(projRes.data as Project || {});
       setUnits((unitsRes.data || []) as Unit[]);
       setProjectDocs((docRes.data || []) as ProjectDocument[]);
-      setUserProfiles((profilesRes.data || []) as { id: string; display_name: string; full_name_en: string }[]);
+      setUserProfiles((profilesRes.data || []) as { id: string; full_name_en: string }[]);
       setLoading(false);
     }).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : 'Failed to load project';
@@ -80,10 +80,10 @@ export default function ProjectDetailPage() {
     setHistoryLoading(true);
     try {
       let { data, error: err } = await supabase.from('audit_logs')
-        .select('*, user_profile:user_profiles!audit_logs_changed_by_fkey(display_name, full_name_en)')
-        .eq('table_name', 'projects')
-        .eq('record_id', id)
-        .order('changed_at', { ascending: false })
+        .select('*, user_profile:user_profiles!audit_logs_user_id_fkey(full_name_en)')
+        .eq('entity_type', 'projects')
+        .eq('entity_id', id)
+        .order('created_at', { ascending: false })
         .limit(50);
 
       if (err) {
@@ -91,30 +91,11 @@ export default function ProjectDetailPage() {
           toast.error('No audit logs available yet. Run migration 018 to enable auditing.');
           return;
         }
-        const fallback = await supabase.from('audit_logs')
-          .select('*, user_profile:user_profiles!audit_logs_user_id_fkey(display_name, full_name_en)')
-          .eq('entity_type', 'projects')
-          .eq('entity_id', id)
-          .order('created_at', { ascending: false })
-          .limit(50);
-        if (fallback.error) {
-          toast.error('Failed to load audit history');
-          return;
-        }
-        data = (fallback.data || []).map((r: Record<string, unknown>) => ({
-          id: r.id,
-          changed_by: r.user_id || r.changed_by,
-          action: r.action,
-          table_name: r.entity_type || r.table_name,
-          record_id: r.entity_id || r.record_id,
-          old_data: r.old_data,
-          new_data: r.new_data,
-          changed_at: r.created_at || r.changed_at,
-          user_profile: r.user_profile,
-        }));
+        toast.error('Failed to load audit history');
+        return;
       }
       setAuditLogs((data || []) as unknown as AuditEntry[]);
-    } catch (e) {
+    } catch {
       toast.error('An unexpected error occurred while loading audit history');
     } finally {
       setHistoryLoading(false);
@@ -221,7 +202,7 @@ export default function ProjectDetailPage() {
             <div><label className="label">Project Manager</label>
               <select className="input" value={form.project_manager_id || ''} onChange={(e) => setForm({ ...form, project_manager_id: e.target.value || undefined })}>
                 <option value="">-- Select --</option>
-                {userProfiles.map((up) => <option key={up.id} value={up.id}>{up.display_name || up.full_name_en}</option>)}
+                {userProfiles.map((up) => <option key={up.id} value={up.id}>{up.full_name_en}</option>)}
               </select>
             </div>
             <div><label className="label">Logo URL</label><input className="input" value={form.logo_url || ''} onChange={(e) => setForm({ ...form, logo_url: e.target.value })} placeholder="https://example.com/logo.png" /></div>
@@ -275,7 +256,7 @@ export default function ProjectDetailPage() {
               {project.project_manager_id ? (
                 <div className="flex justify-between">
                   <span className="text-gray-500">Project Manager</span>
-                  <span>{userProfiles.find((u) => u.id === project.project_manager_id)?.display_name || userProfiles.find((u) => u.id === project.project_manager_id)?.full_name_en || project.project_manager_id}</span>
+                  <span>{userProfiles.find((u) => u.id === project.project_manager_id)?.full_name_en || project.project_manager_id}</span>
                 </div>
               ) : null}
               {project.consultant_name && <div className="flex justify-between"><span className="text-gray-500">Consultant</span><span>{project.consultant_name}</span></div>}
@@ -424,7 +405,7 @@ export default function ProjectDetailPage() {
                         log.action === 'delete' ? 'badge-danger' : 'badge-neutral'
                       }`}>{log.action}</span>
                       <span className="text-gray-500">
-                        {log.user_profile?.display_name || log.user_profile?.full_name_en || log.changed_by || 'System'}
+                        {log.user_profile?.full_name_en || log.changed_by || 'System'}
                       </span>
                     </div>
                     <span className="text-xs text-gray-400">{log.changed_at ? new Date(log.changed_at).toLocaleString() : '-'}</span>

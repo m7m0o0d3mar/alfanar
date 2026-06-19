@@ -27,7 +27,7 @@ export default function TaskDetailPage() {
   const [form, setForm] = useState<Partial<WorkTask>>({});
   const [activities, setActivities] = useState<{ id: string; code: string; name_en: string }[]>([]);
   const [relatedWirs, setRelatedWirs] = useState<{ id: string; wir_no: string; title_en: string; status: string }[]>([]);
-  const [userProfiles, setUserProfiles] = useState<{ id: string; display_name: string }[]>([]);
+  const [userProfiles, setUserProfiles] = useState<{ id: string; full_name_en: string }[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -37,11 +37,11 @@ export default function TaskDetailPage() {
       supabase.from('activity_definitions').select('id, code, name_en').eq('is_active', true).order('name_en'),
       supabase.from('work_requests').select('id, wir_no, title_en, status')
         .eq('activity_id', supabase.rpc?.toString() || '').order('created_at', { ascending: false }),
-      supabase.from('user_profiles').select('id, display_name').order('display_name'),
+      supabase.from('user_profiles').select('id, full_name_en').order('full_name_en'),
     ]).then(([taskRes, actRes, , userRes]) => {
       const t = taskRes.data as WorkTask | null;
       setTask(t); setForm(t || {}); setActivities(actRes.data as { id: string; code: string; name_en: string }[] || []);
-      setUserProfiles((userRes.data || []) as { id: string; display_name: string }[]);
+      setUserProfiles((userRes.data || []) as { id: string; full_name_en: string }[]);
       if (t?.activity_id) {
         supabase.from('work_requests').select('id, wir_no, title_en, status')
           .eq('activity_id', t.activity_id).order('created_at', { ascending: false })
@@ -131,7 +131,7 @@ export default function TaskDetailPage() {
             <div><label className="label">Assigned To</label>
               <select className="input" value={form.assigned_to || ''} onChange={e => setForm({ ...form, assigned_to: e.target.value })}>
                 <option value="">-- Select User --</option>
-                {userProfiles.map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+                {userProfiles.map(u => <option key={u.id} value={u.id}>{u.full_name_en}</option>)}
               </select>
             </div>
           </div>
@@ -157,7 +157,7 @@ export default function TaskDetailPage() {
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Progress</span><span>{task.progress}%</span></div>
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Target Date</span><span>{task.target_date || '-'}</span></div>
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Actual Completion</span><span>{task.actual_completion_date || '-'}</span></div>
-              <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Assigned To</span><span>{task.assigned_to ? (userProfiles.find(u => u.id === task.assigned_to)?.display_name || '-') : '-'}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Assigned To</span><span>{task.assigned_to ? (userProfiles.find(u => u.id === task.assigned_to)?.full_name_en || '-') : '-'}</span></div>
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Created</span><span>{formatDate(task.created_at)}</span></div>
             </div>
           </div>

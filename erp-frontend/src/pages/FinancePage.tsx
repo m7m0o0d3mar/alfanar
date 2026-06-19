@@ -10,7 +10,7 @@ import { type SyncConfig } from '../services/syncService';
 import { Plus, Download, Upload, Search, TrendingDown, TrendingUp, DollarSign, FileText } from 'lucide-react';
 import Pagination from '../components/Pagination';
 
-interface Invoice { id: string; invoice_no: string; contract_id: string; po_no: string; amount: number; invoice_date: string; due_date: string; status: string; notes: string; }
+interface Invoice { id: string; invoice_no: string; contract_id: string; amount: number; invoice_date: string; due_date: string; status: string; notes: string; }
 interface BudgetEntry { id: string; budget_code: string; description: string; project_id: string; category: string; budget_type: string; total_budget: number; used_amount: number; currency: string; }
 interface Project { id: string; name_en: string; project_code: string; }
 interface PO { id: string; po_no: string; project_id: string; supplier_id: string; total_amount: number; status: string; }
@@ -92,12 +92,18 @@ export default function FinancePage() {
     for (const po of toCreate) {
       const invoiceNo = `INV-${po.po_no}`;
       try {
+        const relatedContract = contracts.find(c => c.id === po.project_id);
+        const contractId = relatedContract?.id;
+        if (!contractId) {
+          console.warn(`No contract found for PO ${po.po_no} — auto-create skipped`);
+          continue;
+        }
         const { error } = await supabase.from('contract_invoices').insert({
           invoice_no: invoiceNo, invoice_type: 'progress',
+          contract_id: contractId,
           amount: po.total_amount || 0,
           invoice_date: new Date().toISOString().slice(0, 10),
           status: 'draft', notes: `Auto-created from PO ${po.po_no}`,
-          po_no: po.po_no,
         });
         if (!error) created++;
       } catch (err) {
@@ -119,10 +125,9 @@ export default function FinancePage() {
       if (activeTab === 'invoices') {
         const { error } = await supabase.from('contract_invoices').insert({
           invoice_no: form.invoice_no, invoice_type: 'progress',
-          contract_id: form.contract_id || null,
+          contract_id: form.contract_id,
           invoice_date: form.invoice_date, amount: form.amount ? parseFloat(form.amount) : 0,
           due_date: form.due_date || null, notes: form.notes || null,
-          po_no: form.po_no || null,
           status: 'draft',
         });
         if (error) throw error;

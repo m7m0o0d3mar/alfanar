@@ -12,7 +12,7 @@ interface WorkRequest {
   location: string; project_id: string; description: string;
   discipline: string; contractor: string;
   priority: string; requested_by: string; activity_id: string;
-  inspector: string; ncr_reason: string;
+  inspected_by: string; ncr_reason: string;
   item_definition_id: string; unit_id: string;
   qc_approved: boolean; qc_approved_by: string; qc_approved_at: string;
   consultant_approved: boolean; consultant_approved_by: string; consultant_approved_at: string;
@@ -55,8 +55,8 @@ export default function WIRDetailPage() {
   const [itemDefinitions, setItemDefinitions] = useState<{ id: string; activity: string; wbs_code: string; division: string; sub_division: string }[]>([]);
 
   const [units, setUnits] = useState<{ id: string; unit_code: string; zone: string; block: string }[]>([]);
-  const [inspectors, setInspectors] = useState<{ id: string; display_name: string }[]>([]);
-  const [profiles, setProfiles] = useState<{ id: string; display_name: string; role: string }[]>([]);
+  const [inspectors, setInspectors] = useState<{ id: string; full_name_en: string }[]>([]);
+  const [profiles, setProfiles] = useState<{ id: string; full_name_en: string; role: string }[]>([]);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectDialog, setShowRejectDialog] = useState(false);
 
@@ -68,16 +68,16 @@ export default function WIRDetailPage() {
       supabase.from('activity_definitions').select('id, code, name_en').eq('is_active', true).order('name_en'),
       supabase.from('item_definitions').select('id, activity, wbs_code, division, sub_division').order('activity'),
       supabase.from('units').select('id, unit_code, zone, block').order('unit_code'),
-      supabase.from('user_profiles').select('id, display_name').order('display_name'),
-      supabase.from('user_profiles').select('id, display_name, role'),
+      supabase.from('user_profiles').select('id, full_name_en').order('full_name_en'),
+      supabase.from('user_profiles').select('id, full_name_en, role'),
     ]).then(([wirRes, actRes, itemDefRes, unitsRes, inspRes, profRes]) => {
       setWir(wirRes.data as WorkRequest | null);
       setForm(wirRes.data as WorkRequest || {});
       setActivities(actRes.data as { id: string; code: string; name_en: string }[] || []);
       setItemDefinitions(itemDefRes.data as { id: string; activity: string; wbs_code: string; division: string; sub_division: string }[] || []);
       setUnits(unitsRes.data as { id: string; unit_code: string; zone: string; block: string }[] || []);
-      setInspectors(inspRes.data as { id: string; display_name: string }[] || []);
-      setProfiles(profRes.data as { id: string; display_name: string; role: string }[] || []);
+      setInspectors(inspRes.data as { id: string; full_name_en: string }[] || []);
+      setProfiles(profRes.data as { id: string; full_name_en: string; role: string }[] || []);
       setLoading(false);
     });
   }, [id]);
@@ -87,7 +87,7 @@ export default function WIRDetailPage() {
 
   function getProfileName(userId?: string) {
     if (!userId) return '-';
-    return profiles.find(p => p.id === userId)?.display_name || userId.slice(0, 8);
+    return profiles.find(p => p.id === userId)?.full_name_en || userId.slice(0, 8);
   }
 
   function buildTimeline(): TimelineEntry[] {
@@ -439,21 +439,21 @@ export default function WIRDetailPage() {
             <div><label className="label">Discipline</label><input className="input" value={form.discipline || ''} onChange={(e) => setForm({ ...form, discipline: e.target.value })} /></div>
             <div><label className="label">Contractor</label><input className="input" value={form.contractor || ''} onChange={(e) => setForm({ ...form, contractor: e.target.value })} /></div>
             <div><label className="label">Inspector</label>
-              <select className="input" value={form.inspector || ''} onChange={(e) => setForm({ ...form, inspector: e.target.value || undefined })}>
+              <select className="input" value={form.inspected_by || ''} onChange={(e) => setForm({ ...form, inspected_by: e.target.value || undefined })}>
                 <option value="">-- Select Inspector --</option>
-                {inspectors.map((i) => <option key={i.id} value={i.id}>{i.display_name}</option>)}
+                {inspectors.map((i) => <option key={i.id} value={i.id}>{i.full_name_en}</option>)}
               </select>
             </div>
             <div><label className="label">QC Engineer</label>
               <select className="input" value={form.qc_engineer_id || ''} onChange={(e) => setForm({ ...form, qc_engineer_id: e.target.value || undefined })}>
                 <option value="">-- Select QC Engineer --</option>
-                {profiles.filter(p => ['engineer','qc','consultant'].includes(p.role)).map(p => <option key={p.id} value={p.id}>{p.display_name} ({p.role})</option>)}
+                {profiles.filter(p => ['engineer','qc','consultant'].includes(p.role)).map(p => <option key={p.id} value={p.id}>{p.full_name_en} ({p.role})</option>)}
               </select>
             </div>
             <div><label className="label">Consultant</label>
               <select className="input" value={form.consultant_engineer_id || ''} onChange={(e) => setForm({ ...form, consultant_engineer_id: e.target.value || undefined })}>
                 <option value="">-- Select Consultant --</option>
-                {profiles.filter(p => ['engineer','qc','consultant'].includes(p.role)).map(p => <option key={p.id} value={p.id}>{p.display_name} ({p.role})</option>)}
+                {profiles.filter(p => ['engineer','qc','consultant'].includes(p.role)).map(p => <option key={p.id} value={p.id}>{p.full_name_en} ({p.role})</option>)}
               </select>
             </div>
             <div><label className="label">Priority</label>
@@ -497,7 +497,7 @@ export default function WIRDetailPage() {
           <div className="card space-y-3">
             <h3 className="font-semibold" style={{ color: 'var(--color-text)' }}>Inspection & Team</h3>
             <div className="text-sm space-y-2">
-              <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Inspector</span><span>{wir.inspector ? (inspectors.find(i => i.id === wir.inspector)?.display_name || wir.inspector) : '-'}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Inspector</span><span>{wir.inspected_by ? (inspectors.find(i => i.id === wir.inspected_by)?.full_name_en || wir.inspected_by) : '-'}</span></div>
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>QC Engineer</span><span>{getProfileName(wir.qc_engineer_id)}</span></div>
               <div className="flex justify-between"><span style={{ color: 'var(--color-text-secondary)' }}>Consultant</span><span>{getProfileName(wir.consultant_engineer_id)}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Status</span><span className={`badge text-xs ${statusStyle.color}`}>{statusStyle.label}</span></div>
