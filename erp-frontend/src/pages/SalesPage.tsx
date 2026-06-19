@@ -160,7 +160,8 @@ export default function SalesPage() {
         if (!saleForm.unit_id) { setFormError('Unit is required'); setSaving(false); return; }
         if (!saleForm.customer_id) { setFormError('Customer is required'); setSaving(false); return; }
         const selectedUnit = units.find(u => u.id === saleForm.unit_id);
-        payload = { unit_id: saleForm.unit_id, customer_id: saleForm.customer_id, sale_price: saleForm.sale_price ? Number(saleForm.sale_price) : 0, sale_date: new Date().toISOString().slice(0, 10), status: 'reserved', project_id: selectedUnit?.project_id || null };
+        if (!selectedUnit?.project_id) { setFormError('Selected unit has no project assignment'); setSaving(false); return; }
+        payload = { unit_id: saleForm.unit_id, customer_id: saleForm.customer_id, sale_price: saleForm.sale_price ? Number(saleForm.sale_price) : 0, sale_date: new Date().toISOString().slice(0, 10), status: 'reserved', project_id: selectedUnit.project_id };
       }
       const { error } = await supabase.from(tables[tab]).insert(payload);
       if (error) throw error;

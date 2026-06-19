@@ -29,7 +29,7 @@ interface Unit { id: string; unit_code: string; unit_type: string; status: strin
 interface ProjectDocument {
   id: string; doc_code: string; title_en: string;
   doc_type: string; revision: string; status: string;
-  created_at: string; file_url: string | null;
+  uploaded_at: string; file_url: string | null;
 }
 
 export default function ProjectDetailPage() {
@@ -57,7 +57,7 @@ export default function ProjectDetailPage() {
     Promise.all([
       supabase.from('projects').select('*').eq('id', id).single(),
       supabase.from('units').select('*').eq('project_id', id).limit(10),
-      supabase.from('documents').select('*').eq('project_id', id).order('created_at', { ascending: false }).limit(5),
+      supabase.from('documents').select('*').eq('project_id', id).order('uploaded_at', { ascending: false }).limit(5),
       supabase.from('user_profiles').select('id, display_name, full_name_en').order('full_name_en'),
     ]).then(([projRes, unitsRes, docRes, profilesRes]) => {
       if (projRes.error) throw new Error(projRes.error.message);
@@ -377,7 +377,7 @@ export default function ProjectDetailPage() {
                       <td className="text-sm text-gray-500 capitalize">{d.doc_type}</td>
                       <td className="text-sm text-gray-500">v{d.revision || 'A'}</td>
                       <td><span className={`badge capitalize ${d.status === 'current' ? 'badge-success' : d.status === 'draft' ? 'badge-neutral' : 'badge-warning'}`}>{d.status}</span></td>
-                      <td className="text-sm text-gray-500">{d.created_at ? new Date(d.created_at).toLocaleDateString() : '-'}</td>
+                      <td className="text-sm text-gray-500">{d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : '-'}</td>
                       <td>
                         {d.file_url ? (
                           <div className="flex gap-1">
