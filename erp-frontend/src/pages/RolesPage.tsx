@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useT } from '../hooks/useTranslation';
+import { useToast } from '../context/ToastContext';
 import { rolesApi } from '../services/api';
 import type { RolePermission } from '../types';
 import { Shield, Save, Database, AlertCircle } from 'lucide-react';
@@ -35,6 +36,7 @@ const ADMIN_FEATURES = [
 
 export default function RolesPage() {
   const t = useT();
+  const toast = useToast();
   const [roles, setRoles] = useState<RolePermission[]>([]);
   const [loading, setLoading] = useState(true);
   const [seedError, setSeedError] = useState('');
@@ -94,7 +96,7 @@ export default function RolesPage() {
       await rolesApi.update(role, editPerms[role]);
       loadRoles();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Save failed');
+      toast.error(err instanceof Error ? err.message : 'Save failed');
     }
   }
 

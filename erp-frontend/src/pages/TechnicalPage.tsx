@@ -86,12 +86,14 @@ export default function TechnicalPage() {
     if (!form.title_en.trim()) { setFormError('Title is required'); return; }
     setSaving(true);
     try {
+      const user = (await supabase.auth.getUser()).data.user;
+      if (!user) { setFormError('You must be logged in to create a ticket.'); setSaving(false); return; }
       const { error } = await supabase.from('technical_tickets').insert({
         project_id: form.project_id, ticket_no: form.ticket_no,
         title_en: form.title_en, ticket_type: form.ticket_type,
         priority: form.priority, status: 'open',
         description: form.title_en,
-        requested_by: (await supabase.auth.getUser()).data.user?.id,
+        requested_by: user.id,
       });
       if (error) throw error;
       toast.success(`Ticket "${form.ticket_no}" created`);

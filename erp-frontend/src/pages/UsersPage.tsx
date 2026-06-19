@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useT } from '../hooks/useTranslation';
+import { useToast } from '../context/ToastContext';
 import { usersApi } from '../services/api';
 import type { UserProfile, UserRole } from '../types';
 import { Plus, Edit3, Trash2, UserCheck, UserX, Shield, Mail } from 'lucide-react';
@@ -13,6 +14,7 @@ const ROLES: UserRole[] = [
 
 export default function UsersPage() {
   const t = useT();
+  const toast = useToast();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
@@ -46,18 +48,20 @@ export default function UsersPage() {
       });
       setShowInvite(false);
       setForm({ email: '', password: '', full_name_en: '', full_name_ar: '', phone: '', role: 'developer' });
+      toast.success('User invited successfully');
       loadUsers();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to invite user');
+      toast.error(err instanceof Error ? err.message : 'Failed to invite user');
     }
   }
 
   async function handleUpdate(user: UserProfile, field: string, value: unknown) {
     try {
       await usersApi.update(user.id, { [field]: value });
+      toast.success('User updated');
       loadUsers();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Update failed');
+      toast.error(err instanceof Error ? err.message : 'Update failed');
     }
   }
 
@@ -65,9 +69,10 @@ export default function UsersPage() {
     if (!confirm(`Delete user ${user.full_name_en}?`)) return;
     try {
       await usersApi.remove(user.id);
+      toast.success('User deleted');
       loadUsers();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
     }
   }
 

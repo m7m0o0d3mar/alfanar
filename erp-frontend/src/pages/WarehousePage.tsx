@@ -76,8 +76,7 @@ export default function WarehousePage() {
             }));
             return { data: mapped, error: null };
           }
-          const { data: d2 } = await supabase.from('warehouse_inventory').select('*').order('id');
-          return { data: d2 || [], error: null };
+          return { data: [], error: null };
         })() : Promise.resolve({ data: [] }),
         activeTab === 'movements' ? (async () => {
           let d1: any[] | null = null;
@@ -95,8 +94,7 @@ export default function WarehousePage() {
           } catch (err) {
             console.error('Stock movements fallback failed:', err);
           }
-          const { data: d2 } = await supabase.from('warehouse_movements').select('*').limit(200);
-          return { data: d2 || [], error: null };
+          return { data: [], error: null };
         })() : Promise.resolve({ data: [] }),
         activeTab === 'requisitions' ? supabase.from('purchase_requisitions').select('*').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
         supabase.from('projects').select('id, name_en, project_code').eq('is_active', true).order('name_en'),
@@ -230,7 +228,7 @@ export default function WarehousePage() {
               {loading ? (
                 <tr><td colSpan={cols.length + 1} className="text-center py-8" style={{ color: 'var(--color-text-secondary)' }}>Loading...</td></tr>
               ) : filtered.length === 0 ? (
-                <EmptyState title={'No records'} description="Add your first record to get started." actionLabel="Add New" onAction={activeTab === 'inventory' ? undefined : openNewForm} />
+                <tr><td colSpan={cols.length + 1}><EmptyState title={'No records'} description="Add your first record to get started." actionLabel="Add New" onAction={activeTab === 'inventory' ? undefined : openNewForm} /></td></tr>
               ) : (
                 paged.map((item) => (
                   <tr key={item.id}>
