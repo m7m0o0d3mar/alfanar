@@ -88,6 +88,8 @@ export default function ProcurementPage() {
         const { error } = await supabase.from('purchase_orders').insert({
           po_no: form.po_no, title: form.title, project_id: form.project_id,
           supplier_id: form.supplier_id, order_date: form.order_date,
+          delivery_date: form.delivery_date || null, payment_terms: form.payment_terms || null,
+          notes: form.notes || null,
           total_amount: form.total_amount ? parseFloat(form.total_amount) : 0,
           grand_total: form.grand_total ? parseFloat(form.grand_total) : 0,
           status: form.status || 'draft',

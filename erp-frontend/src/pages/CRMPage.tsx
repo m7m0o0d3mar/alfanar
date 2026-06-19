@@ -236,7 +236,7 @@ export default function CRMPage() {
         probability: dealForm.probability ? parseInt(dealForm.probability) : null,
         expected_close_date: dealForm.expected_close_date || null,
         assigned_to: dealForm.assigned_to || null,
-        description: dealForm.description || null,
+        notes: dealForm.description || null,
       };
       const { error } = await supabase.from('crm_deals').insert(payload);
       if (error) throw error;

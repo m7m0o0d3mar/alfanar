@@ -265,16 +265,18 @@ export default function HSEPage() {
                 <div><label className="label">Type</label>
                   <select className="input" value={form.incident_type} onChange={(e) => setForm({ ...form, incident_type: e.target.value })}>
                     {(tab === 'observations'
-                      ? ['unsafe_act','unsafe_condition','near_miss','environmental']
+                      ? ['safe_act','unsafe_act','unsafe_condition','positive']
                       : ['near_miss','minor_injury','serious_injury','fatality','property_damage','fire','environmental','other']
                     ).map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                   </select>
                 </div>
-                <div><label className="label">Severity</label>
-                  <select className="input" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
-                    {['low','medium','high','critical'].map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
+                {tab === 'incidents' && (
+                  <div><label className="label">Severity</label>
+                    <select className="input" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
+                      {['low','medium','high','critical'].map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
               {tab === 'incidents' && (
                 <>

@@ -116,7 +116,7 @@ export default function FinancePage() {
       if (activeTab === 'invoices') {
         const { error } = await supabase.from('contract_invoices').insert({
           invoice_no: form.invoice_no, invoice_type: 'progress',
-          contract_id: form.contract_id || contracts[0]?.id || null,
+          contract_id: form.contract_id || null,
           invoice_date: form.invoice_date, amount: form.amount ? parseFloat(form.amount) : 0,
           due_date: form.due_date || null, notes: form.notes || null,
           status: 'draft',

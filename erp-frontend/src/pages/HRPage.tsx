@@ -72,8 +72,12 @@ export default function HRPage() {
     setLoading(true);
     try {
       const tbl = tab === 'employees' ? 'employees' : tab === 'payroll' ? 'payroll_runs' : 'labor_groups';
+      let query = supabase.from(tbl).select('*');
+      if (tab === 'employees') query = query.eq('status', 'active').order('full_name_en');
+      else if (tab === 'payroll') query = query.order('period_start', { ascending: false });
+      else if (tab === 'labor_groups') query = query.order('name_en');
       const [dataRes, projRes] = await Promise.all([
-        supabase.from(tbl).select('*'),
+        query,
         supabase.from('projects').select('id, name_en, project_code').eq('is_active', true).order('name_en'),
       ]);
       if (tab === 'employees') setEmployees((dataRes.data || []) as unknown as Employee[]);
