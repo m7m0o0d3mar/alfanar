@@ -5,6 +5,7 @@ import { usersApi } from '../services/api';
 import type { UserProfile, UserRole } from '../types';
 import { Plus, Edit3, Trash2, UserCheck, UserX, Shield, Mail } from 'lucide-react';
 import Pagination from '../components/Pagination';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const ROLES: UserRole[] = [
   'admin', 'developer', 'project_manager', 'main_contractor',
@@ -19,6 +20,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
   const [editing, setEditing] = useState<UserProfile | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserProfile | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 25;
   const [form, setForm] = useState({
@@ -66,14 +68,7 @@ export default function UsersPage() {
   }
 
   async function handleDelete(user: UserProfile) {
-    if (!confirm(`Delete user ${user.full_name_en}?`)) return;
-    try {
-      await usersApi.remove(user.id);
-      toast.success('User deleted');
-      loadUsers();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Delete failed');
-    }
+    setDeleteTarget(user);
   }
 
   return (
@@ -249,6 +244,21 @@ export default function UsersPage() {
             </div>
           </div>
         </div>
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete User"
+          message={`Delete user ${deleteTarget.full_name_en}?`}
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={async () => {
+            await usersApi.remove(deleteTarget.id);
+            toast.success('User deleted');
+            loadUsers();
+            setDeleteTarget(null);
+          }}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );

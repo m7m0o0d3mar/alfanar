@@ -3,6 +3,7 @@ import { customFieldsApi, modulesApi } from '../../services/api';
 import type { CustomField, Module } from '../../types';
 import { useT } from '../../hooks/useTranslation';
 import { Plus, Edit3, Trash2 } from 'lucide-react';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 const FIELD_TYPES = ['text', 'number', 'date', 'enum', 'lookup', 'boolean', 'textarea', 'json'];
 
@@ -13,6 +14,7 @@ export default function CustomFieldsTab() {
   const [fields, setFields] = useState<CustomField[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [edit, setEdit] = useState<Partial<CustomField>>({ field_type: 'text' });
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => { modulesApi.list().then(setModules); }, []);
 
@@ -29,9 +31,7 @@ export default function CustomFieldsTab() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm('Delete this custom field?')) return;
-    await customFieldsApi.remove(id);
-    setFields((f) => f.filter((x) => x.id !== id));
+    setDeleteId(id);
   }
 
   return (
@@ -140,6 +140,20 @@ export default function CustomFieldsTab() {
           </tbody>
         </table>
       </div>
+      {deleteId && (
+        <ConfirmDialog
+          title="Delete Custom Field"
+          message="Delete this custom field?"
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={async () => {
+            await customFieldsApi.remove(deleteId);
+            setFields((f) => f.filter((x) => x.id !== deleteId));
+            setDeleteId(null);
+          }}
+          onCancel={() => setDeleteId(null)}
+        />
+      )}
     </div>
   );
 }

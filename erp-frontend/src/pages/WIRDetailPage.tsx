@@ -4,7 +4,7 @@ import { supabase } from '../services/supabase';
 import { useT } from '../hooks/useTranslation';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, Edit3, XCircle, CheckCircle, Send, RotateCcw, Clock } from 'lucide-react';
+import { ArrowLeft, Edit3, XCircle, CheckCircle, Send, RotateCcw, Clock, AlertTriangle } from 'lucide-react';
 
 interface WorkRequest {
   id: string; wir_no: string; title_en: string; title_ar: string;
@@ -59,6 +59,7 @@ export default function WIRDetailPage() {
   const [profiles, setProfiles] = useState<{ id: string; full_name_en: string; role: string }[]>([]);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [showNcrConfirm, setShowNcrConfirm] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -279,7 +280,12 @@ export default function WIRDetailPage() {
 
   async function rejectAsNcr() {
     if (!id || !wir) return;
-    if (!confirm('Reject this WIR and create NCR?')) return;
+    setShowNcrConfirm(true);
+  }
+
+  async function doRejectAsNcr() {
+    if (!id || !wir) return;
+    setShowNcrConfirm(false);
     setSaving(true);
     try {
       const { error } = await supabase.from('work_requests').update({
@@ -570,6 +576,23 @@ export default function WIRDetailPage() {
             <div className="flex gap-2 mt-4">
               <button className="btn-danger btn-sm" onClick={handleReject} disabled={saving}>{saving ? 'Rejecting...' : 'Confirm Reject'}</button>
               <button className="btn-secondary btn-sm" onClick={() => { setShowRejectDialog(false); setRejectReason(''); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showNcrConfirm && (
+        <div className="modal-overlay" onClick={() => setShowNcrConfirm(false)}>
+          <div className="modal max-w-sm" style={{ backgroundColor: 'var(--color-surface)' }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-full" style={{background: 'color-mix(in srgb, var(--color-danger) 15%, transparent)'}}>
+                <AlertTriangle size={22} style={{color: 'var(--color-danger)'}} />
+              </div>
+              <h3 className="text-base font-semibold">Reject & Create NCR</h3>
+            </div>
+            <p className="text-sm mb-6" style={{color: 'var(--color-text-secondary)'}}>Reject this WIR and create NCR?</p>
+            <div className="flex gap-2 justify-end">
+              <button className="btn-secondary btn-sm" onClick={() => setShowNcrConfirm(false)}>Cancel</button>
+              <button className="btn-sm px-4 text-white font-semibold rounded-full" style={{background: 'var(--color-danger)'}} onClick={doRejectAsNcr}>Reject & Create NCR</button>
             </div>
           </div>
         </div>

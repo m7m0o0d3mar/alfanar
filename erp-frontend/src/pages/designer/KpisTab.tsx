@@ -3,6 +3,7 @@ import { kpiApi, modulesApi } from '../../services/api';
 import type { KpiDefinition, Module } from '../../types';
 import { useT } from '../../hooks/useTranslation';
 import { Plus, Edit3, Trash2, BarChart3 } from 'lucide-react';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 const FORMULA_TYPES = ['count', 'sum', 'ratio', 'avg_duration', 'custom'];
 
@@ -13,6 +14,7 @@ export default function KpisTab() {
   const [kpis, setKpis] = useState<KpiDefinition[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [edit, setEdit] = useState<Partial<KpiDefinition>>({});
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => { modulesApi.list().then(setModules); }, []);
 
@@ -29,9 +31,7 @@ export default function KpisTab() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm('Delete this KPI?')) return;
-    await kpiApi.remove(id);
-    setKpis((k) => k.filter((x) => x.id !== id));
+    setDeleteId(id);
   }
 
   return (
@@ -128,6 +128,20 @@ export default function KpisTab() {
           </div>
         ))}
       </div>
+      {deleteId && (
+        <ConfirmDialog
+          title="Delete KPI"
+          message="Delete this KPI?"
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={async () => {
+            await kpiApi.remove(deleteId);
+            setKpis((k) => k.filter((x) => x.id !== deleteId));
+            setDeleteId(null);
+          }}
+          onCancel={() => setDeleteId(null)}
+        />
+      )}
     </div>
   );
 }

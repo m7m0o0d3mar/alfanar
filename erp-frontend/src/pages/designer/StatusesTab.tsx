@@ -3,6 +3,7 @@ import { statusesApi, modulesApi } from '../../services/api';
 import type { StatusDefinition, Module } from '../../types';
 import { useT } from '../../hooks/useTranslation';
 import { Plus, Edit3, Trash2 } from 'lucide-react';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 export default function StatusesTab() {
   const t = useT();
@@ -11,6 +12,7 @@ export default function StatusesTab() {
   const [statuses, setStatuses] = useState<StatusDefinition[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [edit, setEdit] = useState<Partial<StatusDefinition>>({});
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     modulesApi.list().then(setModules);
@@ -30,9 +32,7 @@ export default function StatusesTab() {
   }
 
   async function remove(id: string) {
-    if (!window.confirm('Delete this status?')) return;
-    await statusesApi.remove(id);
-    setStatuses((s) => s.filter((x) => x.id !== id));
+    setDeleteId(id);
   }
 
   return (
@@ -144,6 +144,20 @@ export default function StatusesTab() {
           </tbody>
         </table>
       </div>
+      {deleteId && (
+        <ConfirmDialog
+          title="Delete Status"
+          message="Delete this status?"
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={async () => {
+            await statusesApi.remove(deleteId);
+            setStatuses((s) => s.filter((x) => x.id !== deleteId));
+            setDeleteId(null);
+          }}
+          onCancel={() => setDeleteId(null)}
+        />
+      )}
     </div>
   );
 }
