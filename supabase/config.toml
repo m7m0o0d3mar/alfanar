@@ -21,10 +21,6 @@ policy = "per_worker"
 enabled = true
 file_size_limit = "50MB"
 
-[functions]
-enabled = true
-verify_jwt = true
-
 [functions.wir]
 verify_jwt = false
 

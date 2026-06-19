@@ -4,9 +4,25 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import { useTheme } from '../context/ThemeContext';
 import { useT } from '../hooks/useTranslation';
-import { Search, Moon, Sun, Globe, LogOut, Sparkles, Bell, User, Settings, Menu } from 'lucide-react';
+import { Search, Moon, Sun, Globe, LogOut, Sparkles, Bell, User, Settings, Menu, Eye, EyeOff } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import AiAssistant from './AiAssistant';
+import type { UserRole } from '../types';
+
+const ALL_ROLES: { value: UserRole; label: string }[] = [
+  { value: 'project_manager', label: 'Project Manager' },
+  { value: 'engineer', label: 'Engineer' },
+  { value: 'quality', label: 'Quality' },
+  { value: 'hse', label: 'HSE' },
+  { value: 'hr', label: 'HR' },
+  { value: 'finance', label: 'Finance' },
+  { value: 'sales', label: 'Sales' },
+  { value: 'client', label: 'Client' },
+  { value: 'consultant', label: 'Consultant' },
+  { value: 'developer', label: 'Developer' },
+  { value: 'main_contractor', label: 'Main Contractor' },
+  { value: 'subcontractor', label: 'Subcontractor' },
+];
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -14,7 +30,7 @@ interface HeaderProps {
 
 export default function Header({ onMenuClick }: HeaderProps) {
   const t = useT();
-  const { user, signOut } = useAuth();
+  const { user, signOut, impersonatedRole, setImpersonatedRole } = useAuth();
   const { settings } = useSettings();
   const [showAiAssistant, setShowAiAssistant] = useState(false);
   const { theme, toggleTheme, language, setLanguage } = useTheme();
@@ -22,12 +38,17 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [viewAsOpen, setViewAsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const viewAsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
+      }
+      if (viewAsRef.current && !viewAsRef.current.contains(e.target as Node)) {
+        setViewAsOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -113,6 +134,61 @@ export default function Header({ onMenuClick }: HeaderProps) {
           <Globe size={14} />
           <span className="ml-1 hidden md:inline">{language === 'ar' ? 'EN' : 'AR'}</span>
         </button>
+
+        {user?.role === 'admin' && (
+          <div className="relative" ref={viewAsRef}>
+            <button
+              onClick={() => setViewAsOpen(!viewAsOpen)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              style={{
+                backgroundColor: impersonatedRole ? 'var(--color-warning-bg, rgba(251, 191, 36, 0.15))' : 'transparent',
+                color: impersonatedRole ? 'var(--color-warning, #f59e0b)' : 'var(--color-text-secondary)',
+                border: '1px solid',
+                borderColor: impersonatedRole ? 'var(--color-warning, #f59e0b)' : 'var(--color-border)',
+              }}
+            >
+              {impersonatedRole ? <EyeOff size={14} /> : <Eye size={14} />}
+              <span>{impersonatedRole ? impersonatedRole.replace(/_/g, ' ') : 'View As'}</span>
+            </button>
+
+            {viewAsOpen && (
+              <div
+                className="absolute right-0 top-full mt-1 w-48 rounded-xl shadow-lg border py-1 z-50 max-h-72 overflow-y-auto"
+                style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+              >
+                <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider" style={{color: 'var(--color-text-muted)'}}>
+                  View As
+                </div>
+                {ALL_ROLES.map((r) => (
+                  <button
+                    key={r.value}
+                    onClick={() => { setImpersonatedRole(r.value); setViewAsOpen(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-white/5 transition-colors"
+                    style={{
+                      color: impersonatedRole === r.value ? 'var(--color-primary)' : 'var(--color-text)',
+                      fontWeight: impersonatedRole === r.value ? 600 : 400,
+                    }}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+                {impersonatedRole && (
+                  <>
+                    <div className="my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
+                    <button
+                      onClick={() => { setImpersonatedRole(null); setViewAsOpen(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm font-medium hover:bg-white/5 transition-colors"
+                      style={{ color: 'var(--color-danger)' }}
+                    >
+                      <EyeOff size={14} />
+                      Exit View As
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="relative" ref={dropdownRef}>
           <button

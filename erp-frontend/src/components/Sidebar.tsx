@@ -84,13 +84,13 @@ interface SidebarProps {
 
 export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }: SidebarProps) {
   const t = useT();
-  const { user, signOut } = useAuth();
+  const { user, signOut, effectiveRole } = useAuth();
   const { settings } = useSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const primaryColor = settings.primary_color;
-  const isAdmin = user?.role === 'admin';
-  const allowedModules = roleModuleMap[user?.role || 'client'];
+  const isAdmin = effectiveRole === 'admin';
+  const allowedModules = roleModuleMap[effectiveRole || 'client'];
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     navSections.forEach((s) => { initial[s.key] = true; });
@@ -231,7 +231,7 @@ export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }: 
               {isExpanded && (
                 <div className="flex-1 min-w-0 sidebar-user-text">
                   <p className="text-sm font-medium truncate">{user.full_name_en || user.email}</p>
-                  <p className="text-[10px] text-gray-500 truncate capitalize">{user.role?.replace(/_/g, ' ')}</p>
+                  <p className="text-[10px] text-gray-500 truncate capitalize">{effectiveRole?.replace(/_/g, ' ')}</p>
                 </div>
               )}
               {isExpanded && (

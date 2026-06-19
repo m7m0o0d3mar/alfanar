@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { authApi } from '../services/api';
 import { supabase } from '../services/supabase';
-import type { UserProfile } from '../types';
+import type { UserProfile, UserRole } from '../types';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -10,6 +10,9 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
+  effectiveRole: UserRole | null;
+  impersonatedRole: UserRole | null;
+  setImpersonatedRole: (role: UserRole | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -18,11 +21,16 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
   resetPassword: async () => {},
   updatePassword: async () => {},
+  effectiveRole: null,
+  impersonatedRole: null,
+  setImpersonatedRole: () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [impersonatedRole, setImpersonatedRole] = useState<UserRole | null>(null);
+  const effectiveRole = impersonatedRole || user?.role || null;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -62,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut, resetPassword, updatePassword }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signOut, resetPassword, updatePassword, effectiveRole, impersonatedRole, setImpersonatedRole }}>
       {children}
     </AuthContext.Provider>
   );

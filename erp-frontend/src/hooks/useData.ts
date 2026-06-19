@@ -84,13 +84,13 @@ export function useTable(table: string, query?: Record<string, unknown>) {
 }
 
 export function useUserProjects() {
-  const { user } = useAuth();
+  const { user, effectiveRole } = useAuth();
   const { data, loading, error, reload } = useLoad(
     async () => {
       if (!user) return [];
 
       // Admin: return ALL projects (no user_projects filter needed)
-      if (user.role === 'admin') {
+      if (effectiveRole === 'admin') {
         const { data: allProjects, error: e } = await supabase
           .from('projects')
           .select('*');
@@ -112,7 +112,7 @@ export function useUserProjects() {
         project_role: r.project_role as string,
       })) as (Project & { project_role: string })[];
     },
-    [user?.id, user?.role]
+    [user?.id, effectiveRole]
   );
   return { projects: data || [], loading, error, reload };
 }
