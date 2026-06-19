@@ -112,17 +112,13 @@ export async function syncRows(
       if (!payload.uploaded_by) payload.uploaded_by = currentUserId;
     }
     if (payload.project_id === null || payload.project_id === undefined) {
-      const projectLabel = config.columns.find((c) => c.key === 'project_id')?.label;
-      if (projectLabel && row[projectLabel]?.trim()) {
-      } else {
-        const { data: firstProject } = await supabase
-          .from('projects')
-          .select('id')
-          .eq('is_active', true)
-          .limit(1)
-          .maybeSingle();
-        if (firstProject) payload.project_id = firstProject.id;
-      }
+      const { data: firstProject } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
+      if (firstProject) payload.project_id = firstProject.id;
     }
 
     try {
