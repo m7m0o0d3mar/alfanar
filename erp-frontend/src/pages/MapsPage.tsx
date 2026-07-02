@@ -13,7 +13,7 @@ import {
   Pencil, Eye, Trash2, Sun, Moon, QrCode, ChevronDown, ChevronRight,
   Home, Box, PanelRight, Download, Upload, Save, Plus, Edit3, X,
   RotateCw, ZoomIn, ZoomOut, Target, Grid3x3, Type, MousePointer, FileText,
-  Ruler, Footprints, Camera, ChevronLeft,
+  Ruler, Footprints, Camera, ChevronLeft, Image, FileSpreadsheet,
 } from 'lucide-react';
 import QRCodeModal from '../components/QRCodeModal';
 import { useToast } from '../context/ToastContext';
@@ -22,6 +22,10 @@ import { useAuth } from '../context/AuthContext';
 import MeasurementTool, { calculateDistance, calculateArea } from '../components/MeasurementTool';
 import type { Measurement } from '../components/MeasurementTool';
 import InteractiveFloorPlan from '../components/InteractiveFloorPlan';
+import MapHierarchyBreadcrumb from '../components/MapHierarchyBreadcrumb';
+import MapImageLayer from '../components/MapImageLayer';
+import GeometryInputPanel from '../components/GeometryInputPanel';
+import MapStatusReport from '../components/MapStatusReport';
 
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -179,9 +183,10 @@ function polygonArea(geom: any): number {
 
 // ---------- 3D Viewer Component ----------
 function Map3DView({
-  blocks, buildings, show, onSelect, statusColors: sc,
+  blocks, buildings, show, onSelect, statusColors: sc, selectedType, selectedId,
 }: {
   blocks: MapBlock[]; buildings: MapBuilding[]; show: boolean; onSelect?: (type: string, id: string) => void; statusColors?: Record<string, string>;
+  selectedType?: string; selectedId?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<any>(null);
@@ -269,6 +274,7 @@ function Map3DView({
           const baseColor = colors[d.status] || 0x6b7280;
           const roofColor = 0x555555;
 
+          const isSelected = d.id === selectedId && item.type === selectedType;
           // Per-floor stacked boxes with alternating shades
           const floorMeshes: any[] = [];
           for (let f = 0; f < floorCount; f++) {
@@ -276,9 +282,12 @@ function Map3DView({
             const r = ((baseColor >> 16) & 0xff) * shade;
             const g = ((baseColor >> 8) & 0xff) * shade;
             const bl = (baseColor & 0xff) * shade;
-            const floorColor = (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(bl);
+            let floorColor = (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(bl);
+            if (isSelected) floorColor = 0x00ff88;
+            const emissive = isSelected ? 0x00ff88 : 0x000000;
+            const emissiveIntensity = isSelected ? 0.3 : 0;
             const fGeo = new T.BoxGeometry(bw * (1 - f * 0.01), floorH, bd * (1 - f * 0.01));
-            const fMat = new T.MeshStandardMaterial({ color: floorColor, roughness: 0.5, metalness: 0.2 });
+            const fMat = new T.MeshStandardMaterial({ color: floorColor, roughness: 0.5, metalness: 0.2, emissive, emissiveIntensity });
             const fMesh = new T.Mesh(fGeo, fMat);
             fMesh.position.set(x, f * floorH + floorH / 2, z);
             fMesh.castShadow = true;
@@ -386,7 +395,7 @@ function Map3DView({
     })();
 
     return () => { mounted = false; };
-  }, [show, blocks, buildings, onSelect]);
+  }, [show, blocks, buildings, onSelect, selectedType, selectedId]);
 
   if (!show) return null;
   return (
@@ -919,9 +928,10 @@ function FloorPlanOverlay({ floors, selectedType, selectedId, boundsPoints }: {
   const map = useMap();
   const overlayRef = useRef<L.ImageOverlay | null>(null);
 
-  // Render overlays for floors with plan_image
+  // Render overlays for selected floor/building/project plan images
   useEffect(() => {
     const overlays: L.ImageOverlay[] = [];
+    // Floors with plan_image
     for (const f of floors) {
       if (!f.plan_image || !f.plan_image_bounds) continue;
       const b = f.plan_image_bounds as any;
@@ -1162,6 +1172,10 @@ export default function MapsPage() {
   const [showWalkthrough, setShowWalkthrough] = useState(false);
   const [showInteractivePlan, setShowInteractivePlan] = useState(false);
   const [virtualTours, setVirtualTours] = useState<any[]>([]);
+  const [showGeometryPanel, setShowGeometryPanel] = useState(false);
+  const [showImagePanel, setShowImagePanel] = useState(false);
+  const [showStatusReport, setShowStatusReport] = useState(false);
+  const [breadcrumb, setBreadcrumb] = useState<{ level: string; id: string; label: string }[]>([]);
 
   const startBoundsPicking = useCallback(() => { setBoundsPoints([]); }, []);
 
@@ -1232,12 +1246,75 @@ export default function MapsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const buildBreadcrumb = useCallback((type: string, id: string) => {
+    const bc: { level: string; id: string; label: string }[] = [];
+    const p = projects.find(x => x.id === id);
+    if (type === 'project' && p) {
+      bc.push({ level: 'project', id, label: p.name_en });
+    } else {
+      const b = blocks.find(x => x.id === id);
+      if (type === 'block' && b) {
+        const pp = projects.find(x => x.id === b.project_id);
+        if (pp) bc.push({ level: 'project', id: pp.id, label: pp.name_en });
+        bc.push({ level: 'block', id, label: `${b.block_code} - ${b.name_en}` });
+      } else {
+        const bd = buildings.find(x => x.id === id);
+        if (type === 'building' && bd) {
+          const pp = projects.find(x => x.id === bd.project_id);
+          if (pp) bc.push({ level: 'project', id: pp.id, label: pp.name_en });
+          const bb = blocks.find(x => x.id === bd.block_id);
+          if (bb) bc.push({ level: 'block', id: bb.id, label: `${bb.block_code} - ${bb.name_en}` });
+          bc.push({ level: 'building', id, label: bd.name_en });
+        } else {
+          const f = floors.find(x => x.id === id);
+          if (type === 'floor' && f) {
+            const bd2 = buildings.find(x => x.id === f.building_id);
+            if (bd2) {
+              const pp2 = projects.find(x => x.id === bd2.project_id);
+              if (pp2) bc.push({ level: 'project', id: pp2.id, label: pp2.name_en });
+              const bb2 = blocks.find(x => x.id === bd2.block_id);
+              if (bb2) bc.push({ level: 'block', id: bb2.id, label: `${bb2.block_code} - ${bb2.name_en}` });
+              bc.push({ level: 'building', id: bd2.id, label: bd2.name_en });
+            }
+            bc.push({ level: 'floor', id, label: `Floor ${f.floor_number}${f.name_en ? ' - ' + f.name_en : ''}` });
+          } else {
+            const u = units.find(x => x.id === id);
+            if (type === 'unit' && u) {
+              const pp3 = projects.find(x => x.id === u.project_id);
+              if (pp3) bc.push({ level: 'project', id: pp3.id, label: pp3.name_en });
+              bc.push({ level: 'unit', id, label: `Unit ${u.unit_code}` });
+            }
+          }
+        }
+      }
+    }
+    return bc;
+  }, [projects, blocks, buildings, floors, units]);
+
   const handleSelect = useCallback((type: string, id: string) => {
     setSelectedType(type);
     setSelectedId(id);
     setShowProperties(true);
     setBoundsPoints([]);
     setShowInteractivePlan(false);
+  }, []);
+
+  useEffect(() => {
+    if (selectedType && selectedId) {
+      setBreadcrumb(buildBreadcrumb(selectedType, selectedId));
+    }
+  }, [selectedType, selectedId, buildBreadcrumb]);
+
+  const handleBreadcrumbNav = useCallback((level: string, id: string) => {
+    handleSelect(level, id);
+  }, [handleSelect]);
+
+  const handleResetBreadcrumb = useCallback(() => {
+    setSelectedType('');
+    setSelectedId('');
+    setShowProperties(false);
+    setBoundsPoints([]);
+    setBreadcrumb([]);
   }, []);
 
   const saveAnnotation = useCallback(async (geoJson: any, type: string) => {
@@ -1300,9 +1377,14 @@ export default function MapsPage() {
     <div className={`page-enter flex flex-col ${fullscreen ? 'fixed inset-0 z-[9999] bg-white' : 'h-[calc(100vh-8rem)]'}`}>
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-2 shrink-0 flex-wrap gap-1.5 px-2 pt-2">
-        <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold">Interactive Map</h1>
-          <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: 'var(--color-border)' }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="shrink-0">
+            <h1 className="text-lg font-bold">Interactive Map</h1>
+          </div>
+          <div className="flex-1 min-w-0 overflow-x-auto scrollbar-none">
+            <MapHierarchyBreadcrumb items={breadcrumb} onNavigate={handleBreadcrumbNav} onReset={handleResetBreadcrumb} />
+          </div>
+          <div className="flex rounded-lg overflow-hidden border shrink-0" style={{ borderColor: 'var(--color-border)' }}>
             {(['2d', '3d', 'split'] as const).map(m => (
               <button key={m} onClick={() => setViewMode(m)}
                 className={`px-2.5 py-1 text-xs font-medium transition-colors ${viewMode === m ? 'gradient-primary text-white' : ''}`}
@@ -1338,6 +1420,19 @@ export default function MapsPage() {
           <button className={`btn-sm ${drawMode !== 'none' ? 'bg-blue-600 text-white' : 'btn-secondary'}`}
             onClick={() => setDrawMode(drawMode === 'none' ? 'polygon' : 'none')} title="Toggle drawing">
             <Pencil size={13} />
+          </button>
+          <button className={`btn-sm ${showImagePanel ? 'bg-purple-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setShowImagePanel(!showImagePanel)} title="Image layers">
+            <Image size={13} />
+          </button>
+          <button className={`btn-sm ${showGeometryPanel ? 'bg-orange-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setShowGeometryPanel(!showGeometryPanel)} title="Add geometry">
+            <FileSpreadsheet size={13} />
+          </button>
+          <button className={`btn-sm ${showStatusReport ? 'bg-rose-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setShowStatusReport(!showStatusReport)} title="Status report"
+            disabled={!selectedId}>
+            <FileText size={13} />
           </button>
           <button className="btn-secondary btn-sm" onClick={() => setShowLegend(!showLegend)} title="Legend">
             <Eye size={13} />
@@ -1391,7 +1486,12 @@ export default function MapsPage() {
       {/* Main content */}
       <div className="flex-1 flex gap-2 min-h-0 px-2 pb-2">
         {/* Hierarchy panel */}
-        {showHierarchy && (viewMode === '2d' || viewMode === 'split') && (
+        {showGeometryPanel && (
+          <div className="w-64 shrink-0">
+            <GeometryInputPanel projectId={selectedId || projects[0]?.id || ''} targetLevel="building" onClose={() => setShowGeometryPanel(false)} onImported={() => { setShowGeometryPanel(false); loadData(); }} />
+          </div>
+        )}
+        {showHierarchy && (viewMode === '2d' || viewMode === 'split') && !showGeometryPanel && (
           <div className="w-56 glass-card overflow-hidden shrink-0 rounded-lg">
             <HierarchyTree
               projects={projects} blocks={blocks} buildings={buildings}
@@ -1428,6 +1528,14 @@ export default function MapsPage() {
                   <TileLayer attribution={tile.att} url={tile.url} />
                   <ScaleControl position="bottomleft" imperial={false} />
                   <FocusOnSelect selectedType={selectedType} selectedId={selectedId} projects={projects} blocks={blocks} buildings={buildings} units={units} />
+                  <MapImageLayer
+                    projectId={selectedType === 'project' ? selectedId : undefined}
+                    blockId={selectedType === 'block' ? selectedId : undefined}
+                    buildingId={selectedType === 'building' ? selectedId : undefined}
+                    floorId={selectedType === 'floor' ? selectedId : undefined}
+                    editable={true}
+                    onUpdate={() => {}}
+                  />
 
                   {/* Drawing toolbar */}
                   <DrawingToolbar enabled={drawMode !== 'none'} annotations={annotations} onSave={saveAnnotation} mode={drawMode} setMode={setDrawMode} />
@@ -1602,7 +1710,7 @@ export default function MapsPage() {
         {/* 3D View */}
         {is3d && !showWalkthrough && (
           <div className={`${viewMode === 'split' ? 'w-1/2' : 'flex-1'} glass-card overflow-hidden rounded-lg`}>
-            <Map3DView blocks={filteredBlocks} buildings={buildings} show={true} onSelect={handleSelect} statusColors={statusColors} />
+            <Map3DView blocks={filteredBlocks} buildings={buildings} show={true} onSelect={handleSelect} statusColors={statusColors} selectedType={selectedType} selectedId={selectedId} />
           </div>
         )}
 
@@ -1680,8 +1788,20 @@ export default function MapsPage() {
           </div>
         )}
 
+        {/* Status Report panel */}
+        {showStatusReport && selectedId && (
+          <div className="w-64 shrink-0">
+            <MapStatusReport
+              projectId={selectedType === 'project' ? selectedId : undefined}
+              blockId={selectedType === 'block' ? selectedId : undefined}
+              selectedType={selectedType}
+              onClose={() => setShowStatusReport(false)}
+            />
+          </div>
+        )}
+
         {/* Properties panel */}
-        {showProperties && selectedId && (
+        {showProperties && selectedId && !showStatusReport && (
           <div className="w-56 glass-card overflow-hidden shrink-0 rounded-lg">
             <PropertyPanel
               selectedType={selectedType}

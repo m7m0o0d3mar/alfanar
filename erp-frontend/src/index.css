@@ -538,6 +538,8 @@ html { scroll-behavior: smooth; }
 }
 
 /* ===== SCROLLBAR ===== */
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-primary) 10%, transparent); border-radius: 9999px; }
