@@ -405,10 +405,11 @@ function Map3DView({
 
 // ---------- 3D Walkthrough (First-Person) ----------
 function Walkthrough3DView({
-  buildings, floors, show, selectedBldg, onBldgChange,
+  buildings, floors, show, selectedBldg, onBldgChange, onUnitNavigate,
 }: {
   buildings: MapBuilding[]; floors: MapFloor[]; show: boolean;
   selectedBldg?: string; onBldgChange?: (bldgId: string) => void;
+  onUnitNavigate?: (unitId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [bldgIndex, setBldgIndex] = useState(0);
@@ -464,8 +465,30 @@ function Walkthrough3DView({
         warmLight.position.set(-5, 10, -5);
         scene.add(warmLight);
 
-        const floorGeo = new T.PlaneGeometry(30, 30);
+        const bldg = buildings[bldgIndex];
+        const bFloors = floors.filter(f => f.building_id === bldg.id).sort((a, b) => a.floor_number - b.floor_number);
+        const curFloor = bFloors[floorIndex] || bFloors[0];
+        const roomW = 6, roomD = 5, roomH = 3;
+
+        // Floor with optional plan image texture
         const floorMat = new T.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.9, metalness: 0 });
+        let hasPlanImage = false;
+        if (curFloor?.plan_image) {
+          try {
+            const texLoader = new T.TextureLoader();
+            const tex = await new Promise<any>((resolve, reject) => {
+              texLoader.load(curFloor.plan_image!, resolve, undefined, reject);
+            });
+            tex.wrapS = T.RepeatWrapping;
+            tex.wrapT = T.RepeatWrapping;
+            tex.repeat.set(1, 1);
+            floorMat.map = tex;
+            floorMat.color.setHex(0xffffff);
+            floorMat.needsUpdate = true;
+            hasPlanImage = true;
+          } catch { }
+        }
+        const floorGeo = new T.PlaneGeometry(hasPlanImage ? roomW * 1.2 : 30, hasPlanImage ? roomD * 1.2 : 30);
         const floor = new T.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
         floor.position.y = -0.01;
@@ -475,11 +498,6 @@ function Walkthrough3DView({
         const gridHelper = new T.GridHelper(30, 20, 0x374151, 0x374151);
         gridHelper.position.y = 0;
         scene.add(gridHelper);
-
-        const bldg = buildings[bldgIndex];
-        const bFloors = floors.filter(f => f.building_id === bldg.id).sort((a, b) => a.floor_number - b.floor_number);
-        const curFloor = bFloors[floorIndex] || bFloors[0];
-        const roomW = 6, roomD = 5, roomH = 3;
 
         const wallMat = new T.MeshStandardMaterial({ color: 0x2d3748, roughness: 0.6, metalness: 0.1, side: T.DoubleSide });
         const wallPositions = [
@@ -501,7 +519,7 @@ function Walkthrough3DView({
         ceil.position.set(0, roomH, 0);
         scene.add(ceil);
 
-        const teleportTargets: { mesh: any; targetPos: any; label: string }[] = [];
+        const teleportTargets: { mesh: any; targetPos: any; label: string; unitCode?: string }[] = [];
         const roomList: { label: string; sx: number; sz: number; color: string }[] = [];
 
         if (curFloor?.room_data) {
@@ -529,7 +547,7 @@ function Walkthrough3DView({
             if (r.unit_code) { ctx.fillStyle = '#60a5fa'; ctx.fillText(r.unit_code, sc / 2, 120); }
             ctx.fillStyle = '#a78bfa';
             ctx.font = '9px sans-serif';
-            ctx.fillText('Click to teleport', sc / 2, 200);
+            ctx.fillText(r.unit_code ? 'Click to view unit' : 'Click to teleport', sc / 2, 200);
 
             const tex = new T.CanvasTexture(canvas);
             const spriteMat = new T.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
@@ -552,7 +570,7 @@ function Walkthrough3DView({
             tpMesh.rotation.x = -Math.PI / 2;
             tpMesh.position.set(sx, 0.05, sz);
             scene.add(tpMesh);
-            teleportTargets.push({ mesh: tpMesh, targetPos: new T.Vector3(sx, 1.6, sz + 1.5), label: r.name_en });
+            teleportTargets.push({ mesh: tpMesh, targetPos: new T.Vector3(sx, 1.6, sz + 1.5), label: r.name_en, unitCode: r.unit_code });
 
             roomList.push({ label: r.name_en, sx, sz, color: rColor });
           });
@@ -652,6 +670,10 @@ function Walkthrough3DView({
           if (intersects.length > 0) {
             const hit = teleportTargets.find(t => t.mesh === intersects[0].object);
             if (hit) {
+              if (hit.unitCode && onUnitNavigate) {
+                onUnitNavigate(hit.unitCode);
+                return;
+              }
               const startPos = camera.position.clone();
               const endPos = hit.targetPos.clone();
               let t2 = 0;
@@ -1402,6 +1424,54 @@ export default function MapsPage() {
     toast.info(`Loaded view: ${v.name_en}`);
   }, [toast]);
 
+  const handleExportGeoJSON = useCallback(async () => {
+    if (!selectedId) { toast.info('Select an item to export'); return; }
+    try {
+      let geometry: any = null;
+      let name = '';
+      if (selectedType === 'block') {
+        const b = blocks.find(x => x.id === selectedId);
+        geometry = b?.geometry;
+        name = `${b?.block_code || b?.name_en || 'block'}`;
+      } else if (selectedType === 'building') {
+        const b = buildings.find(x => x.id === selectedId);
+        geometry = b?.geometry;
+        name = b?.name_en || 'building';
+      } else if (selectedType === 'project') {
+        const { data: geoms } = await supabase.from('project_geometries').select('geometry, name').eq('project_id', selectedId);
+        if (geoms && geoms.length > 0) {
+          geometry = geoms[0].geometry;
+          name = geoms[0].name || projects.find(p => p.id === selectedId)?.name_en || 'project';
+        }
+      } else if (selectedType === 'floor') {
+        const f = floors.find(x => x.id === selectedId);
+        if (f?.room_data) {
+          const rooms = f.room_data as RoomHotspot[];
+          geometry = {
+            type: 'GeometryCollection',
+            geometries: rooms.map(r => ({ type: 'Polygon', coordinates: [r.polygon.flatMap(p => p)] })),
+          };
+          name = `Floor ${f.floor_number}`;
+        }
+      }
+      if (!geometry) { toast.error('No geometry data available for this item'); return; }
+      const feature = { type: 'Feature', geometry, properties: { name, type: selectedType } };
+      const blob = new Blob([JSON.stringify(feature, null, 2)], { type: 'application/geo+json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name.replace(/\s+/g, '_')}.geojson`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('GeoJSON exported');
+    } catch (err) {
+      console.error('Export failed:', err);
+      toast.error('Export failed');
+    }
+  }, [selectedId, selectedType, blocks, buildings, floors, projects, toast]);
+
   const filteredProjects = projects.filter(p => {
     if (statusFilter !== 'all' && p.status !== statusFilter) return false;
     if (search && !p.name_en.toLowerCase().includes(search.toLowerCase()) && !p.project_code.toLowerCase().includes(search.toLowerCase())) return false;
@@ -1535,6 +1605,10 @@ export default function MapsPage() {
           <button className={`btn-sm ${measureMode !== 'none' ? 'bg-green-600 text-white' : 'btn-secondary'}`}
             onClick={() => setMeasureMode(measureMode === 'none' ? 'distance' : 'none')} title="Measure">
             <Ruler size={13} />
+          </button>
+          <button className="btn-secondary btn-sm" onClick={handleExportGeoJSON} disabled={!selectedId}
+            title="Export as GeoJSON">
+            <Download size={13} />
           </button>
           {(viewMode === '3d' || viewMode === 'split') && (
             <button className={`btn-sm ${showWalkthrough ? 'bg-purple-600 text-white' : 'btn-secondary'}`}
@@ -1807,7 +1881,11 @@ export default function MapsPage() {
           <div className={`${viewMode === 'split' ? 'w-1/2' : 'flex-1'} glass-card overflow-hidden rounded-lg`}>
             <Walkthrough3DView buildings={buildings} floors={floors} show={true}
               selectedBldg={selectedType === 'building' ? selectedId : undefined}
-              onBldgChange={(bid) => handleSelect('building', bid)} />
+              onBldgChange={(bid) => handleSelect('building', bid)}
+              onUnitNavigate={(code) => {
+                const u = units.find(x => x.unit_code === code);
+                if (u) navigate(`/units/${u.id}`);
+              }} />
           </div>
         )}
 
