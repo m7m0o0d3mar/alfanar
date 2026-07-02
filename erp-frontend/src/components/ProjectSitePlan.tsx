@@ -68,18 +68,31 @@ function FitProjectBounds({ features }: { features: FeatureGroupData[] }) {
   const map = useMap();
   useEffect(() => {
     if (features.length === 0) return;
-    const allCoords: [number, number][] = [];
-    for (const f of features) {
-      for (const ring of f.coords) {
-        for (const [lat, lng] of ring) {
-          allCoords.push([lat, lng]);
+    try {
+      const allCoords: [number, number][] = [];
+      for (const f of features) {
+        if (!f.coords || f.coords.length === 0) continue;
+        for (const ring of f.coords) {
+          if (!ring || ring.length < 2) continue;
+          for (const coord of ring) {
+            if (!coord || coord.length < 2) continue;
+            const [lat, lng] = coord;
+            if (typeof lat !== 'number' || typeof lng !== 'number') continue;
+            allCoords.push([lat, lng]);
+          }
         }
       }
-    }
-    if (allCoords.length < 2) return;
-    const bounds = L.latLngBounds(allCoords);
-    if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+      if (allCoords.length < 2) return;
+      const bounds = L.latLngBounds(allCoords);
+      if (bounds.isValid()) {
+        map.whenReady(() => {
+          map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+        });
+      } else {
+        console.warn('FitProjectBounds: invalid bounds', allCoords.length, allCoords.slice(0, 3));
+      }
+    } catch (err) {
+      console.error('FitProjectBounds error:', err);
     }
   }, [map, features]);
   return null;
@@ -133,6 +146,7 @@ function MapContent({ geometries, selectedId, onSelect, drillLevel, levelColors,
   return (
     <>
       {filtered.map((g) => {
+        if (!g.coords[0] || g.coords[0].length < 3) return null;
         const c = levelColors.get(g.id) || getFeatureColor(g as any);
         const isSelected = selectedId === g.id;
         const geoJsonData = {
@@ -189,7 +203,7 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
       const feats: FeatureGroupData[] = [];
       for (const g of data) {
         const coords = parseGeoJSONCoords(g.geometry);
-        if (coords.length > 0) {
+        if (coords.length > 0 && coords[0].length >= 3) {
           feats.push({
             id: g.id, parentId: g.parent_id, type: g.geometry_type,
             label: g.label_en || g.label_ar, coords, properties: g.properties || {},

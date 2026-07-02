@@ -67,10 +67,5 @@ CREATE INDEX IF NOT EXISTS idx_virtual_tours_project ON virtual_tours(project_id
 insert into storage.buckets (id, name, public) values ('property_media', 'property_media', true)
 on conflict (id) do nothing;
 
--- Page registry entries for new features
-insert into page_registry (code, path, icon, name_en, name_ar, parent_code, section_key, section_label_en, section_label_ar, sort_order, is_enabled)
-values
-  ('property_gallery', '/media-gallery', 'Image', 'Media Gallery', 'معرض الوسائط', null, 'properties', 'Properties', 'العقارات', 45, true),
-  ('virtual_tours', '/virtual-tours', 'Video', 'Virtual Tours', 'الجولات الافتراضية', null, 'properties', 'Properties', 'العقارات', 46, true),
-  ('interactive_plans', '/interactive-plans', 'Grid3x3', 'Interactive Plans', 'المخططات التفاعلية', null, 'properties', 'Properties', 'العقارات', 47, true)
-on conflict (code) do nothing;
+-- Note: page_registry entries removed — these features are embedded inside
+-- ProjectDetailPage/UnitDetailPage/MapsPage, not standalone pages.
