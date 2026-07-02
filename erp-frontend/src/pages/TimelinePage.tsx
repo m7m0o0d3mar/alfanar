@@ -1,16 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../services/supabase';
-import { useT } from '../hooks/useTranslation';
 import {
-  CalendarRange, Plus, Save, Download, Link2, BarChart3,
+  CalendarRange, Save, Download, Link2, BarChart3,
   Layers, GitBranch, AlertTriangle, Clock, Users,
 } from 'lucide-react';
 import type { ScheduleTask, TaskDependency, ScheduleFilter, WBSNode, Project, Resource, TaskResource, Baseline } from '../types';
 import GanttChart from '../components/timeline/GanttChart';
 import TimelineFilter from '../components/timeline/TimelineFilter';
+import { useAuth } from '../context/AuthContext';
 
 export default function TimelinePage() {
-  const t = useT();
+  const { hasPermission } = useAuth();
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<'gantt' | 'resources' | 'dependencies'>('gantt');
 
@@ -20,7 +20,7 @@ export default function TimelinePage() {
   const [wbsNodes, setWbsNodes] = useState<WBSNode[]>([]);
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [dependencies, setDependencies] = useState<TaskDependency[]>([]);
-  const [resources, setResources] = useState<Resource[]>([]);
+  const [, setResources] = useState<Resource[]>([]);
   const [taskResources, setTaskResources] = useState<TaskResource[]>([]);
   const [assignees, setAssignees] = useState<{ id: string; name: string }[]>([]);
 
@@ -237,9 +237,9 @@ export default function TimelinePage() {
               </button>
             </>
           )}
-          <button className="btn btn-primary btn-sm" onClick={() => setShowDepModal(true)}>
+          {hasPermission('timelines', 'create') && <button className="btn btn-primary btn-sm" onClick={() => setShowDepModal(true)}>
             <Link2 size={14} /> Add Dependency
-          </button>
+          </button>}
           <button className="btn btn-secondary btn-sm" onClick={exportCSV}>
             <Download size={14} /> Export
           </button>
@@ -357,9 +357,9 @@ export default function TimelinePage() {
         <div className="glass-card p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold">Task Dependencies</h3>
-            <button className="btn btn-primary btn-sm" onClick={() => setShowDepModal(true)}>
+            {hasPermission('timelines', 'create') && <button className="btn btn-primary btn-sm" onClick={() => setShowDepModal(true)}>
               <Link2 size={14} /> Add Dependency
-            </button>
+            </button>}
           </div>
           {filteredDeps.length === 0 ? (
             <div className="empty-state py-12">
@@ -392,9 +392,11 @@ export default function TimelinePage() {
                         </td>
                         <td className="text-xs">{dep.lag_days}</td>
                         <td>
-                          <button className="btn btn-sm btn-secondary text-xs" onClick={() => deleteDependency(dep.id)}>
-                            Delete
-                          </button>
+                          {hasPermission('timelines', 'delete') && (
+                            <button className="btn btn-sm btn-secondary text-xs" onClick={() => deleteDependency(dep.id)}>
+                              Delete
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -547,13 +549,13 @@ export default function TimelinePage() {
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button className="btn btn-secondary" onClick={() => setShowDepModal(false)}>Cancel</button>
-                <button
+                {hasPermission('timelines', 'create') && <button
                   className="btn btn-primary"
                   onClick={saveDependency}
                   disabled={saving || !depForm.predecessor_id || !depForm.successor_id}
                 >
                   {saving ? 'Saving...' : 'Add Dependency'}
-                </button>
+                </button>}
               </div>
             </div>
           </div>
@@ -581,13 +583,13 @@ export default function TimelinePage() {
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button className="btn btn-secondary" onClick={() => setShowBaselineModal(false)}>Cancel</button>
-                <button
+                {hasPermission('timelines', 'create') && <button
                   className="btn btn-primary"
                   onClick={saveBaseline}
                   disabled={savingBaseline || !baselineName.trim()}
                 >
                   {savingBaseline ? 'Saving...' : 'Save Baseline'}
-                </button>
+                </button>}
               </div>
             </div>
           </div>

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { useT } from '../hooks/useTranslation';
 import { supabase } from '../services/supabase';
 import { useToast } from '../context/ToastContext';
 import { exportCSV } from '../utils/csv';
 import CsvImportModal from '../components/CsvImportModal';
 import { type SyncConfig } from '../services/syncService';
-import { useNavigate } from 'react-router-dom';
 import { Plus, Download, Upload, Eye, Search, Trash2 } from 'lucide-react';
 import Pagination from '../components/Pagination';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -25,9 +25,9 @@ interface CustomerOption {
 export default function SalesPage() {
   const t = useT();
   const toast = useToast();
-  const navigate = useNavigate();
+  const { hasPermission } = useAuth();
   const [data, setData] = useState<Record<string, unknown>[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [allProjects, setProjects] = useState<Project[]>([]);
   const [units, setUnits] = useState<UnitOption[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [users, setUsers] = useState<{ id: string; full_name_en: string }[]>([]);
@@ -53,6 +53,7 @@ export default function SalesPage() {
 
   const tables: Record<string, string> = { leads: 'leads', customers: 'customers', unit_sales: 'unit_sales' };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setPage(1); load(); }, [tab]);
 
   useEffect(() => {
@@ -67,7 +68,7 @@ export default function SalesPage() {
     try {
       const tbl = tables[tab];
       const [dataRes, projRes, unitsRes, custRes, userRes] = await Promise.all([
-        supabase.from(tbl).select(tbl === 'unit_sales' ? '*, unit:unit_id(*), customer:customer_id(*)' : '*').order('created_at', { ascending: false }),
+        supabase.from(tbl).select(tbl === 'unit_sales' ? '*, unit:unit_id(*), customer:customer_id(*), project:project_id(project_code, name_en)' : '*').order('created_at', { ascending: false }),
         supabase.from('projects').select('id, name_en, project_code').eq('is_active', true).order('name_en'),
         supabase.from('units').select('id, unit_code, unit_type, price, project_id').eq('is_active', true).order('unit_code'),
         supabase.from('customers').select('id, full_name_en, customer_code').order('full_name_en'),
@@ -114,6 +115,7 @@ export default function SalesPage() {
       { key: 'phone', label: 'Phone', required: false },
       { key: 'email', label: 'Email', required: false },
       { key: 'status', label: 'Status', required: false },
+      { key: 'project_id', label: 'Project', required: false },
       { key: 'assigned_to', label: 'Assigned To', required: false },
     ],
     customers: [
@@ -126,6 +128,7 @@ export default function SalesPage() {
       { key: 'sale_no', label: 'Sale No' },
       { key: 'unit_id', label: 'Unit', required: true },
       { key: 'customer_id', label: 'Customer', required: true },
+      { key: 'project_id', label: 'Project', required: false },
       { key: 'sale_price', label: 'Sale Price', type: 'number' as const, required: false },
       { key: 'sale_date', label: 'Sale Date', required: false },
       { key: 'status', label: 'Status', required: false },
@@ -133,11 +136,17 @@ export default function SalesPage() {
   };
   const columns = columnsMap[tab] as { key: string; label: string; required?: boolean; type?: 'string' | 'number' | 'date' }[];
 
+  const projectMap = Object.fromEntries(allProjects.map(p => [p.id, p.project_code]));
+
   function renderCellValue(row: Record<string, unknown>, c: { key: string; type?: string }) {
+    if (tab === 'unit_sales' && c.key === 'project_id')
+      return String((row.project as Record<string, unknown>)?.project_code || projectMap[row[c.key] as string] || '-');
     if (tab === 'unit_sales' && c.key === 'unit_id')
       return String((row.unit as Record<string, unknown>)?.unit_code || row.unit_id || '-');
     if (tab === 'unit_sales' && c.key === 'customer_id')
       return String((row.customer as Record<string, unknown>)?.full_name_en || row.customer_id || '-');
+    if (c.key === 'project_id')
+      return projectMap[row[c.key] as string] || '-';
     if (c.key === 'assigned_to')
       return row[c.key] ? (users.find(u => u.id === row[c.key])?.full_name_en || String(row[c.key])) : '-';
     if (c.type === 'number')
@@ -251,9 +260,9 @@ export default function SalesPage() {
           <button className="btn-sm btn-secondary" onClick={() => setShowImport(true)}>
             <Upload size={14} /> {t('admin.import_csv')}
           </button>
-          <button className="btn-primary btn-sm" onClick={handleOpenForm}>
+          {hasPermission('sales', 'create') && <button className="btn-primary btn-sm" onClick={handleOpenForm}>
             <Plus size={16} /> New {tab === 'unit_sales' ? 'Sale' : tab === 'leads' ? 'Lead' : 'Customer'}
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -298,7 +307,9 @@ export default function SalesPage() {
                          ) : (
                            <button className="btn-sm btn-secondary" onClick={(e) => { e.stopPropagation(); toast.info('Full page view coming soon'); }}><Eye size={14} /></button>
                          )}
-                         <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: tables[tab], id: row.id as string, label: String(row.id) }); }}><Trash2 size={14} /></button>
+                          {hasPermission('sales', 'delete') && (
+                            <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: tables[tab], id: row.id as string, label: String(row.id) }); }}><Trash2 size={14} /></button>
+                          )}
                        </td>
                     </tr>
                   );
@@ -349,7 +360,7 @@ export default function SalesPage() {
               )}
             </div>
             <div className="flex gap-2 mt-4">
-              <button className="btn-primary btn-sm" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+              {hasPermission('sales', 'create') && <button className="btn-primary btn-sm" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>}
               <button className="btn-secondary btn-sm" onClick={() => setShowForm(false)}>Cancel</button>
             </div>
           </div>
@@ -379,17 +390,17 @@ export default function SalesPage() {
             <div className="flex gap-2 mt-4 justify-end">
               {editLeadMode ? (
                 <>
-                  <button className="btn-primary btn-sm" onClick={saveLeadEdit} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+                  {hasPermission('sales', 'edit') && <button className="btn-primary btn-sm" onClick={saveLeadEdit} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>}
                   <button className="btn-secondary btn-sm" onClick={() => { setEditLeadMode(false); setEditLeadForm({}); }}>Cancel</button>
                 </>
               ) : (
                 <>
-                  <button className="btn-primary btn-sm" onClick={() => {
+                  {hasPermission('sales', 'edit') && <button className="btn-primary btn-sm" onClick={() => {
                     setEditLeadForm(Object.fromEntries(
                       Object.entries(detailLead).map(([k, v]) => [k, v != null ? String(v) : ''])
                     ));
                     setEditLeadMode(true);
-                  }}>Edit</button>
+                  }}>Edit</button>}
                   <button className="btn-secondary btn-sm" onClick={() => setDetailLead(null)}>Close</button>
                 </>
               )}

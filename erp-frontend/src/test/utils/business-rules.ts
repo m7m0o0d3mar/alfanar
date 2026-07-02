@@ -94,7 +94,7 @@ export function statusLabel(s: RecordStatus): string {
 
 // ── 2. Role-based Permissions ─────────────────────────────────────────────
 
-export type Role = 'admin' | 'project_manager' | 'engineer' | 'qc' | 'consultant' | 'accountant' | 'procurement' | 'sales' | 'client' | 'developer';
+export type Role = 'admin' | 'project_manager' | 'engineer' | 'quality' | 'consultant' | 'accountant' | 'procurement' | 'sales' | 'client' | 'developer';
 
 export type Action = 'create' | 'edit' | 'delete' | 'approve' | 'reject' | 'view' | 'close' | 'export' | 'import' | 'manage_users' | 'manage_roles';
 
@@ -124,7 +124,7 @@ export function canPerform(role: Role, entity: EntityType, action: Action, owned
       if (action === 'edit') return entity === 'work_request' || entity === 'task';
       if (action === 'delete') return false;
       return false;
-    case 'qc':
+    case 'quality':
       if (action === 'create') return entity === 'work_request';
       if (action === 'edit') return entity === 'work_request';
       if (action === 'approve') return entity === 'work_request'; // QC approval
@@ -294,4 +294,69 @@ export function canTransitionAfterConflict(current: RecordStatus, target: Record
     return { allowed: false, reason: 'Cannot approve a rejected record. Re-submit first (draft → pending).' };
   }
   return { allowed: true };
+}
+
+// ── 7. Procurement Enhancement ────────────────────────────────────────────
+
+export interface EvalScores {
+  quality?: number; delivery?: number; price?: number;
+  responsiveness?: number; compliance?: number;
+}
+
+export function supplierScore(scores: EvalScores): number {
+  const vals = [scores.quality, scores.delivery, scores.price, scores.responsiveness, scores.compliance]
+    .filter((v): v is number => v !== undefined && v !== null);
+  if (vals.length === 0) return 0;
+  return Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10;
+}
+
+export function evalRating(score: number): string {
+  if (score >= 4.5) return 'excellent';
+  if (score >= 3.5) return 'good';
+  if (score >= 2.5) return 'average';
+  if (score >= 1.5) return 'poor';
+  return 'critical';
+}
+
+// ── 8. HR Enhancement ─────────────────────────────────────────────────────
+
+export function calculateOvertimePay(hourlyRate: number, overtimeHours: number, multiplier: number = 1.5): number {
+  return Math.round(hourlyRate * overtimeHours * multiplier * 100) / 100;
+}
+
+export interface ContractInfo {
+  startDate: Date; endDate?: Date; probationEndDate?: Date;
+}
+
+export function evaluateContractExpiry(contract: ContractInfo): { status: string; daysRemaining?: number } {
+  if (!contract.endDate) return { status: 'indefinite' };
+  const now = new Date();
+  const daysRemaining = Math.ceil((contract.endDate.getTime() - now.getTime()) / 86400000);
+  if (daysRemaining < 0) return { status: 'expired', daysRemaining };
+  if (daysRemaining <= 30) return { status: 'expiring_soon', daysRemaining };
+  return { status: 'active', daysRemaining };
+}
+
+// ── 9. Finance Enhancement ────────────────────────────────────────────────
+
+export function getTaxAmount(amount: number, taxRatePercent: number): number {
+  return Math.round(amount * (taxRatePercent / 100) * 100) / 100;
+}
+
+export function getCurrencyConversion(amount: number, rate: number): number {
+  return Math.round(amount * rate * 100) / 100;
+}
+
+export interface ExpenseClaimItem {
+  amount: number; approvedAmount?: number;
+}
+
+export function processExpenseClaim(items: ExpenseClaimItem[]): {
+  totalSubmitted: number; totalApproved: number; itemCount: number;
+} {
+  return {
+    totalSubmitted: Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100,
+    totalApproved: Math.round(items.reduce((s, i) => s + (i.approvedAmount ?? i.amount), 0) * 100) / 100,
+    itemCount: items.length,
+  };
 }

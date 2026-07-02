@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
-  ChevronRight, ChevronDown, AlertTriangle, Clock, Flag,
+  ChevronRight, ChevronDown, AlertTriangle, Flag,
 } from 'lucide-react';
 import type { ScheduleTask, TaskDependency, ScheduleFilter } from '../../types';
 
@@ -72,10 +72,6 @@ const statusColors: Record<string, string> = {
   pending: '#94a3b8', open: '#3b82f6', in_progress: '#eab308',
   review: '#f97316', completed: '#22c55e', cancelled: '#ef4444',
   on_hold: '#a855f7', planning: '#f59e0b', active: '#16a34a',
-};
-
-const priorityColors: Record<string, string> = {
-  low: '#94a3b8', medium: '#3b82f6', high: '#f97316', critical: '#ef4444',
 };
 
 function parseDate(d?: string): Date | null {
@@ -549,9 +545,7 @@ export default function GanttChart({ projects, phases, wbsNodes, tasks, dependen
 
               const bar = getBarStyle(task);
               const baselineBar = getBaselineStyle(task);
-              const isLate = task.total_float !== undefined && task.total_float < 0;
               const statusColor = statusColors[task.status || 'pending'] || '#94a3b8';
-              const priorityColor = priorityColors[task.priority || 'medium'] || '#3b82f6';
               const y = idx * rowHeight + headerHeight + 4;
 
               return (

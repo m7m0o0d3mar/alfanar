@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useT } from '../hooks/useTranslation';
+import { usePageRegistry } from '../hooks/usePageRegistry';
 import { supabase } from '../services/supabase';
 import { ChevronRight, ChevronLeft, Home } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
@@ -49,7 +50,7 @@ async function resolveUUID(seg: string, prevSeg: string): Promise<string | null>
   try {
     const { data } = await supabase.from(entity.table).select(entity.nameField).eq('id', seg).single();
     if (data) return String((data as unknown as Record<string, unknown>)[entity.nameField] ?? '');
-  } catch { /* entity not found */ }
+  } catch { console.error('Breadcrumbs: failed to resolve UUID', seg); }
   return null;
 }
 
@@ -57,6 +58,7 @@ export default function Breadcrumbs() {
   const t = useT();
   const { pathname } = useLocation();
   const { language } = useTheme();
+  const pages = usePageRegistry();
   const [labels, setLabels] = useState<Record<string, string>>({});
   const segments = pathname.split('/').filter(Boolean);
   const Chevron = language === 'ar' ? ChevronLeft : ChevronRight;
@@ -77,25 +79,34 @@ export default function Breadcrumbs() {
     };
     loadLabels();
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
   if (pathname === '/') return null;
 
   const crumbs = segments.map((seg, i) => {
     const path = '/' + segments.slice(0, i + 1).join('/');
+    const isUuid = isUUID(seg);
     let label: string;
-    if (isUUID(seg)) {
+    let labelKey: string | undefined;
+    if (isUuid) {
       label = labels[seg] || seg.slice(0, 8) + '...';
     } else {
-      const labelKey = routeLabels[seg];
+      labelKey = routeLabels[seg];
       label = labelKey ? t(labelKey) : seg.replace(/-/g, ' ').replace(/_/g, ' ');
+    }
+    if (!labelKey && !isUuid) {
+      const matched = pages.find(p => p.path && path.startsWith(p.path));
+      if (matched) {
+        label = language === 'ar' && matched.name_ar ? matched.name_ar : (matched.name_en || matched.code);
+      }
     }
     return { path, label };
   });
 
   return (
-    <nav className="flex items-center gap-1 text-sm flex-wrap" style={{ color: 'var(--color-text-muted)' }}>
-      <Link to="/" className="hover:text-primary transition-colors">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm flex-wrap" style={{ color: 'var(--color-text-muted)' }}>
+      <Link to="/" aria-label="Home" className="hover:text-primary transition-colors">
         <Home size={14} />
       </Link>
       {crumbs.map((crumb, i) => (

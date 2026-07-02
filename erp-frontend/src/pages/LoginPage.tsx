@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useSettings } from '../context/SettingsContext';
 import { useT } from '../hooks/useTranslation';
 import { LogIn, Loader2, Mail, ArrowLeft, KeyRound } from 'lucide-react';
 
@@ -9,7 +10,9 @@ export default function LoginPage() {
   const t = useT();
   const { signIn, resetPassword, updatePassword } = useAuth();
   const { language } = useTheme();
+  const { settings } = useSettings();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'forgot' | 'reset'>(
     searchParams.get('mode') === 'reset' ? 'reset' : 'login'
   );
@@ -28,6 +31,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await signIn(email, password);
+      navigate('/');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -107,11 +111,14 @@ export default function LoginPage() {
               <ArrowLeft size={20} />
             </button>
           )}
+          {settings.login_logo_url && (
+            <img src={settings.login_logo_url} alt="" className="h-16 mx-auto mb-3 object-contain" />
+          )}
           <h1 className="text-2xl font-bold">
-            {mode === 'forgot' ? t('auth.forgot_password') : mode === 'reset' ? t('auth.reset_password') : t('app.title')}
+            {mode === 'forgot' ? t('auth.forgot_password') : mode === 'reset' ? t('auth.reset_password') : settings.app_name || t('app.title')}
           </h1>
           <p style={{color: 'var(--color-text-secondary)'}} className="mt-1">
-            {mode === 'forgot' ? '' : t('app.subtitle')}
+            {mode === 'forgot' ? '' : settings.login_message || t('app.subtitle')}
           </p>
         </div>
 
@@ -198,7 +205,12 @@ export default function LoginPage() {
           </form>
         )}
 
-        <p className="text-center text-sm mt-6" style={{color: 'var(--color-text-muted)'}}>
+        <div className="flex items-center justify-center gap-4 mt-4">
+          <a href="/public-properties" className="text-xs" style={{color: 'var(--color-primary)'}}>
+            {t('public_portal.title')}
+          </a>
+        </div>
+        <p className="text-center text-sm mt-4" style={{color: 'var(--color-text-muted)'}}>
           {language === 'ar' ? 'نظام إدارة مشاريع الإنشاءات' : 'Construction Project Management System'}
         </p>
       </div>

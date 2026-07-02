@@ -1,4 +1,4 @@
-import { Clock, CheckCircle, XCircle, AlertTriangle, TrendingUp, Sun, Moon, SunDim } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, AlertTriangle, TrendingUp, Sun } from 'lucide-react';
 
 interface Summary {
   total: number; present: number; late: number; absent: number;

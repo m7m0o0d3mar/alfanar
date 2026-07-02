@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { modulesApi } from '../../services/api';
 import type { Module } from '../../types';
 import { useT } from '../../hooks/useTranslation';
+import { useAuth } from '../../context/AuthContext';
 import { Plus, ToggleLeft, ToggleRight, Edit3, Grid } from 'lucide-react';
 
 export default function ModulesTab() {
   const t = useT();
+  const { hasPermission } = useAuth();
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -21,24 +23,30 @@ export default function ModulesTab() {
   }
 
   async function toggle(m: Module) {
-    await modulesApi.toggle(m.id, !m.is_enabled);
-    await loadModules();
+    try {
+      await modulesApi.toggle(m.id, !m.is_enabled);
+      await loadModules();
+    } catch (err: unknown) { console.error('Failed to toggle module:', err); }
   }
 
   async function save() {
-    await modulesApi.upsert(edit);
-    setShowForm(false);
-    setEdit({});
-    await loadModules();
+    try {
+      await modulesApi.upsert(edit);
+      setShowForm(false);
+      setEdit({});
+      await loadModules();
+    } catch (err: unknown) { console.error('Failed to save module:', err); }
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">{t('designer.modules')}</h3>
-        <button className="btn-primary btn-sm" onClick={() => { setEdit({}); setShowForm(true); }}>
-          <Plus size={16} /> {t('designer.add_module')}
-        </button>
+        {hasPermission('settings', 'create') && (
+          <button className="btn-primary btn-sm" onClick={() => { setEdit({}); setShowForm(true); }}>
+            <Plus size={16} /> {t('designer.add_module')}
+          </button>
+        )}
       </div>
 
       {showForm && (
@@ -71,7 +79,7 @@ export default function ModulesTab() {
             </div>
           </div>
           <div className="flex gap-2 mt-4">
-            <button className="btn-primary btn-sm" onClick={save}>{t('common.save')}</button>
+            {hasPermission('settings', 'edit') && <button className="btn-primary btn-sm" onClick={save}>{t('common.save')}</button>}
             <button className="btn-secondary btn-sm" onClick={() => setShowForm(false)}>{t('common.cancel')}</button>
           </div>
         </div>
@@ -92,13 +100,13 @@ export default function ModulesTab() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="text-center py-8 text-gray-400">{t('common.loading')}</td></tr>
+              <tr><td colSpan={7} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>{t('common.loading')}</td></tr>
             ) : modules.map((m) => (
               <tr key={m.id}>
                 <td className="font-mono text-xs">{m.code}</td>
                 <td className="font-medium">{m.name_en}</td>
                 <td>{m.name_ar}</td>
-                <td><Grid size={16} className="text-gray-400" /></td>
+                <td><Grid size={16} style={{ color: 'var(--color-text-muted)' }} /></td>
                 <td>{m.order}</td>
                 <td>
                   <button onClick={() => toggle(m)} title="Toggle">

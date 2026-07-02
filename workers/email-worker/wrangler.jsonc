@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "erp-email-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "send_email": [
+    { "name": "EMAIL" }
+  ],
+  "vars": {
+    "SUPABASE_URL": "https://epxxsgensnimdskcmvdj.supabase.co"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

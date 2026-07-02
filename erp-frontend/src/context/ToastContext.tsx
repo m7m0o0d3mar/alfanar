@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
-import { CheckCircle, AlertCircle, X } from 'lucide-react';
+import { CheckCircle, AlertCircle, Info, X } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'info';
 
@@ -53,7 +53,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           >
             {t.type === 'success' ? <CheckCircle size={18} /> :
              t.type === 'error' ? <AlertCircle size={18} /> :
-             <AlertCircle size={18} />}
+             <Info size={18} />}
             <span className="flex-1">{t.message}</span>
             <button onClick={() => remove(t.id)} className="opacity-70 hover:opacity-100"><X size={16} /></button>
           </div>

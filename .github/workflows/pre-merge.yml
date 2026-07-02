@@ -1,0 +1,96 @@
+name: Pre-Merge Regression
+on:
+  pull_request:
+    types: [labeled]
+    labels: [ready-to-merge]
+
+concurrency:
+  group: pre-merge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression-e2e:
+    name: Regression E2E Suite
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: erp-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: erp-frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run full regression suite
+        run: npx playwright test --project=regression --project=auth --project=navigation --project=permissions --project=critical-workflows --reporter=html,json
+        env:
+          BASE_URL: ${{ vars.BASE_URL || 'http://localhost:5173' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-e2e-results
+          path: |
+            erp-frontend/tests/reports/
+            erp-frontend/test-results/
+          retention-days: 14
+
+  api-contracts:
+    name: API Contract Tests
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: erp-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: erp-frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test tests/api/contracts/ --reporter=html
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-contract-results
+          path: erp-frontend/tests/reports/
+          retention-days: 14
+
+  pgtap-full:
+    name: pgTAP Full Suite
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-15-pgtap
+      - run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d testdb -f database/999_full_migration.sql
+          PGPASSWORD=postgres psql -h localhost -U postgres -d testdb -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
+          bash database/tests/run_pgtap.sh
+        env:
+          SUPABASE_DB_URL: postgresql://postgres:postgres@localhost:5432/testdb
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pgtap-full-results
+          path: database/tests/reports/

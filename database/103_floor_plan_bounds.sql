@@ -1,0 +1,1 @@
+ALTER TABLE floors ADD COLUMN IF NOT EXISTS plan_image_bounds JSONB;

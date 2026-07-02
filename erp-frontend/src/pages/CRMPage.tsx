@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { useT } from '../hooks/useTranslation';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { Users, Building2, Target, Phone, ClipboardList, Plus, Search, Eye, Download, Upload, ChevronRight, ChevronLeft, LayoutGrid, Table2, X, Check, Trash2 } from 'lucide-react';
+import { Users, Building2, Target, Phone, ClipboardList, Plus, Search, Eye, Download, Upload, LayoutGrid, Table2, X, Check, Trash2, TrendingUp, DollarSign, TicketCheck, MessageCircle, Send, Smartphone, Image, Paperclip } from 'lucide-react';
+import FilePreviewModal from '../components/FilePreviewModal';
 import CsvImportModal from '../components/CsvImportModal';
 import type { SyncConfig } from '../services/syncService';
 import EmptyState from '../components/EmptyState';
@@ -53,12 +55,12 @@ const TABS = [
   { key: 'deals', label: 'Deals', icon: Target },
   { key: 'interactions', label: 'Interactions', icon: Phone },
   { key: 'tasks', label: 'Tasks', icon: ClipboardList },
+  { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
 ];
 
 const INTERACTION_TYPES = ['call', 'email', 'meeting', 'site_visit', 'note'];
 const TASK_TYPES = ['call', 'email', 'meeting', 'follow_up', 'reminder', 'other'];
 const PRIORITIES = ['low', 'medium', 'high'];
-const TASK_STATUSES = ['pending', 'completed', 'cancelled'];
 const DIRECTIONS = ['inbound', 'outbound'];
 const INDUSTRIES = ['Construction', 'Real Estate', 'Technology', 'Finance', 'Healthcare', 'Education', 'Retail', 'Manufacturing', 'Energy', 'Hospitality', 'Transportation', 'Other'];
 const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'];
@@ -75,16 +77,16 @@ const statusColors: Record<string, string> = {
   pending: 'badge-warning', completed: 'badge-success', cancelled: 'badge-danger',
 };
 
-const defaultContactForm = { first_name: '', last_name: '', email: '', phone: '', mobile: '', position: '', company_id: '', source: '', tags: '', notes: '', assigned_to: '', is_active: true };
-const defaultCompanyForm = { company_name: '', trading_name: '', registration_number: '', vat_number: '', phone: '', email: '', website: '', industry: '', company_size: '', source: '', tags: '', notes: '', assigned_to: '', is_active: true };
-const defaultDealForm = { deal_name: '', company_id: '', contact_id: '', pipeline_stage_id: '', amount: '', probability: '', expected_close_date: '', assigned_to: '', description: '' };
-const defaultInteractionForm = { interaction_type: 'call', subject: '', description: '', contact_id: '', company_id: '', deal_id: '', interaction_date: new Date().toISOString().slice(0, 10), duration_minutes: '', direction: 'inbound', outcome: '', follow_up_date: '', follow_up_notes: '' };
-const defaultTaskForm = { task_type: 'other', subject: '', description: '', contact_id: '', company_id: '', deal_id: '', due_date: '', priority: 'medium', status: 'pending', assigned_to: '' };
+const defaultContactForm = { first_name: '', last_name: '', email: '', phone: '', mobile: '', position: '', company_id: '', source: '', tags: '', notes: '', assigned_to: '', project_id: '', is_active: true };
+const defaultCompanyForm = { company_name: '', trading_name: '', registration_number: '', vat_number: '', phone: '', email: '', website: '', industry: '', company_size: '', source: '', tags: '', notes: '', assigned_to: '', project_id: '', is_active: true };
+const defaultDealForm = { deal_name: '', company_id: '', contact_id: '', pipeline_stage_id: '', amount: '', probability: '', expected_close_date: '', assigned_to: '', project_id: '', description: '' };
+const defaultInteractionForm = { interaction_type: 'call', subject: '', description: '', contact_id: '', company_id: '', deal_id: '', project_id: '', interaction_date: new Date().toISOString().slice(0, 10), duration_minutes: '', direction: 'inbound', outcome: '', follow_up_date: '', follow_up_notes: '' };
+const defaultTaskForm = { task_type: 'other', subject: '', description: '', contact_id: '', company_id: '', deal_id: '', project_id: '', due_date: '', priority: 'medium', status: 'pending', assigned_to: '' };
 
 export default function CRMPage() {
   const t = useT();
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
 
   const [activeTab, setActiveTab] = useState('contacts');
   const [search, setSearch] = useState('');
@@ -99,6 +101,16 @@ export default function CRMPage() {
   const [interactions, setInteractions] = useState<CRMInteraction[]>([]);
   const [tasks, setTasks] = useState<CRMTask[]>([]);
   const [users, setUsers] = useState<{ id: string; full_name_en: string }[]>([]);
+  const [projects, setProjects] = useState<{ id: string; project_code: string; name_en: string }[]>([]);
+  const [filterProject, setFilterProject] = useState('');
+  const [pipelineKpis, setPipelineKpis] = useState<{ label: string; value: string; color: string; icon: any }[]>([]);
+  const [leadScores, setLeadScores] = useState<Record<string, string>>({});
+  const [waMessages, setWaMessages] = useState<any[]>([]);
+  const [waContacts, setWaContacts] = useState<{ phone: string; contactName: string; contactId?: string }[]>([]);
+  const [waSendForm, setWaSendForm] = useState({ phone: '', message: '', project_id: '' });
+  const [waSending, setWaSending] = useState(false);
+  const [waPreviewFile, setWaPreviewFile] = useState<{ url: string; fileName: string; mimeType?: string } | null>(null);
+  const navigate = useNavigate();
 
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -113,14 +125,16 @@ export default function CRMPage() {
   const [interactionForm, setInteractionForm] = useState(defaultInteractionForm);
   const [taskForm, setTaskForm] = useState(defaultTaskForm);
   const [deleting, setDeleting] = useState<{ table: string; id: string; label: string } | null>(null);
+  const [dragDealId, setDragDealId] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadAll(); }, []);
   useEffect(() => { setPage(1); }, [activeTab]);
 
   async function loadAll() {
     setLoading(true);
     try {
-      const [cRes, compRes, dRes, sRes, iRes, tRes, uRes] = await Promise.all([
+      const [cRes, compRes, dRes, sRes, iRes, tRes, uRes, kpiRes, lsRes, waRes, projRes] = await Promise.all([
         supabase.from('crm_contacts').select('*').order('created_at', { ascending: false }),
         supabase.from('crm_companies').select('*').order('created_at', { ascending: false }),
         supabase.from('crm_deals').select('*').order('created_at', { ascending: false }),
@@ -128,6 +142,10 @@ export default function CRMPage() {
         supabase.from('crm_interactions').select('*').order('interaction_date', { ascending: false }),
         supabase.from('crm_tasks').select('*').order('created_at', { ascending: false }),
         supabase.from('user_profiles').select('id, full_name_en').order('full_name_en'),
+        supabase.from('v_crm_sales_kpis').select('*').single(),
+        supabase.from('crm_lead_scores').select('contact_id, score'),
+        supabase.from('crm_whatsapp_messages').select('*').order('created_at', { ascending: false }).limit(200),
+        supabase.from('projects').select('id, project_code, name_en').eq('is_active', true).order('project_code'),
       ]);
       setContacts((cRes.data || []) as CRMContact[]);
       setCompanies((compRes.data || []) as CRMCompany[]);
@@ -136,6 +154,32 @@ export default function CRMPage() {
       setInteractions((iRes.data || []) as CRMInteraction[]);
       setTasks((tRes.data || []) as CRMTask[]);
       setUsers((uRes.data || []) as { id: string; full_name_en: string }[]);
+      setProjects((projRes.data || []) as { id: string; project_code: string; name_en: string }[]);
+
+      if (kpiRes.data) {
+        const s: any = kpiRes.data;
+        setPipelineKpis([
+          { label: 'Pipeline Value', value: formatCurrency(s.pipeline_value), color: '#3b82f6', icon: DollarSign },
+          { label: 'Win Rate', value: `${s.win_rate}%`, color: '#22c55e', icon: TrendingUp },
+          { label: 'Open Deals', value: String(s.open_deals), color: '#f59e0b', icon: Target },
+          { label: 'Total Tickets', value: String(s.total_tickets), color: '#8b5cf6', icon: TicketCheck },
+        ]);
+      }
+      const scoreMap: Record<string, string> = {};
+      (lsRes.data || []).forEach((ls: any) => {
+        const sc = ls.score;
+        scoreMap[ls.contact_id] = sc >= 80 ? 'hot' : sc >= 50 ? 'warm' : sc >= 20 ? 'cool' : 'cold';
+      });
+      setLeadScores(scoreMap);
+
+      const waData = (waRes.data || []) as any[];
+      setWaMessages(waData);
+      const phoneSet = new Set<string>();
+      const phoneToContact: Record<string, { name: string; id: string }> = {};
+      (cRes.data || []).forEach((c: any) => {
+        if (c.phone) { phoneSet.add(c.phone); phoneToContact[c.phone] = { name: c.full_name || c.full_name_en || c.email || 'Unknown', id: c.id }; }
+      });
+      setWaContacts(Array.from(phoneSet).map(p => ({ phone: p, contactName: phoneToContact[p]?.name || p, contactId: phoneToContact[p]?.id })));
     } catch (err) {
       console.error('Failed to load CRM data:', err);
       toast.error('Failed to load CRM data.');
@@ -173,21 +217,24 @@ export default function CRMPage() {
   }
 
   const searchLower = search.toLowerCase();
+  const projectFilter = (item: any) => !filterProject || item.project_id === filterProject;
   const filteredContacts = contacts.filter(c =>
-    !search || `${c.first_name} ${c.last_name} ${c.email || ''} ${c.phone || ''}`.toLowerCase().includes(searchLower)
+    projectFilter(c) && (!search || `${c.first_name} ${c.last_name} ${c.email || ''} ${c.phone || ''}`.toLowerCase().includes(searchLower))
   );
   const filteredCompanies = companies.filter(c =>
-    !search || `${c.company_name} ${c.trading_name || ''} ${c.email || ''} ${c.phone || ''}`.toLowerCase().includes(searchLower)
+    projectFilter(c) && (!search || `${c.company_name} ${c.trading_name || ''} ${c.email || ''} ${c.phone || ''}`.toLowerCase().includes(searchLower))
   );
   const filteredDeals = deals.filter(d =>
-    !search || `${d.deal_name} ${d.company_name || ''} ${d.contact_name || ''}`.toLowerCase().includes(searchLower)
+    projectFilter(d) && (!search || `${d.deal_name} ${d.company_name || ''} ${d.contact_name || ''}`.toLowerCase().includes(searchLower))
   );
   const filteredInteractions = interactions.filter(i =>
-    !search || `${i.subject} ${i.contact_name || ''} ${i.company_name || ''}`.toLowerCase().includes(searchLower)
+    projectFilter(i) && (!search || `${i.subject} ${i.contact_name || ''} ${i.company_name || ''}`.toLowerCase().includes(searchLower))
   );
   const filteredTasks = tasks.filter(t =>
-    !search || `${t.subject} ${t.contact_name || ''} ${t.company_name || ''}`.toLowerCase().includes(searchLower)
+    projectFilter(t) && (!search || `${t.subject} ${t.contact_name || ''} ${t.company_name || ''}`.toLowerCase().includes(searchLower))
   );
+
+  const projectMap = Object.fromEntries(projects.map(p => [p.id, p.project_code]));
 
   async function saveContact() {
     setFormError('');
@@ -304,21 +351,20 @@ export default function CRMPage() {
     } finally { setSaving(false); }
   }
 
-  async function moveDealStage(deal: CRMDeal, direction: 'next' | 'prev') {
-    const currentStage = stages.find(s => s.id === deal.pipeline_stage_id);
-    if (!currentStage) return;
-    const idx = stages.indexOf(currentStage);
-    const targetIdx = direction === 'next' ? idx + 1 : idx - 1;
-    if (targetIdx < 0 || targetIdx >= stages.length) return;
-    const targetStage = stages[targetIdx];
+  async function markDealWon(dealId: string) {
     try {
-      const { error } = await supabase.from('crm_deals').update({ pipeline_stage_id: targetStage.id }).eq('id', deal.id);
-      if (error) throw error;
-      toast.success(`Deal moved to ${targetStage.name_en}`);
-      loadAll();
-    } catch (err: unknown) {
-      console.error('Move deal failed:', err);
-    }
+      await supabase.from('crm_deals').update({ is_won: true, is_lost: false, actual_close_date: new Date().toISOString().slice(0, 10) }).eq('id', dealId);
+      toast.success('Deal marked as won');
+      setDetailItem(null); loadAll();
+    } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Update failed'); }
+  }
+
+  async function markDealLost(dealId: string) {
+    try {
+      await supabase.from('crm_deals').update({ is_lost: true, is_won: false, actual_close_date: new Date().toISOString().slice(0, 10) }).eq('id', dealId);
+      toast.success('Deal marked as lost');
+      setDetailItem(null); loadAll();
+    } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Update failed'); }
   }
 
   async function markTaskComplete(task: CRMTask) {
@@ -362,6 +408,8 @@ export default function CRMPage() {
       { key: 'phone', label: 'Phone' },
       { key: 'company_name', label: 'Company' },
       { key: 'position', label: 'Position' },
+      { key: 'project', label: 'Project' },
+      { key: 'score', label: 'Lead Score' },
       { key: 'tags', label: 'Tags' },
       { key: 'assigned', label: 'Assigned To' },
       { key: 'status', label: 'Status' },
@@ -380,7 +428,7 @@ export default function CRMPage() {
               {loading ? (
                 <tr><td colSpan={columns.length + 1} className="text-center py-8 text-gray-400">Loading...</td></tr>
               ) : filteredContacts.length === 0 ? (
-                <EmptyState title="No contacts found" description="Create your first contact to get started." actionLabel="Add Contact" onAction={openCreateModal} />
+                <tr><td colSpan={99}><EmptyState title="No contacts found" description="Create your first contact to get started." actionLabel="Add Contact" onAction={openCreateModal} /></td></tr>
               ) : (
                 filteredContacts.slice((page - 1) * pageSize, page * pageSize).map((c) => (
                   <tr key={c.id} className="clickable" onClick={() => setDetailItem(c as unknown as Record<string, unknown>)}>
@@ -389,6 +437,18 @@ export default function CRMPage() {
                     <td className="text-sm">{c.phone || '-'}</td>
                     <td className="text-sm">{c.company_name || resolveCompany(c.company_id)}</td>
                     <td className="text-sm">{c.position || '-'}</td>
+                    <td className="text-xs">{projectMap[(c as any).project_id || ''] || '-'}</td>
+                    <td className="text-sm">
+                      {leadScores[c.id] ? (
+                        <span className={`badge ${
+                          leadScores[c.id] === 'hot' ? 'badge-danger' :
+                          leadScores[c.id] === 'warm' ? 'badge-warning' :
+                          leadScores[c.id] === 'cool' ? 'badge-info' : 'badge-neutral'
+                        }`}>{leadScores[c.id]}</span>
+                      ) : (
+                        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>-</span>
+                      )}
+                    </td>
                     <td className="text-sm">
                       {c.tags && Array.isArray(c.tags) ? c.tags.map((tag, i) => <span key={i} className="badge mr-1">{tag}</span>) : '-'}
                     </td>
@@ -396,7 +456,9 @@ export default function CRMPage() {
                     <td className="text-sm"><span className={`badge ${c.is_active ? 'badge-success' : 'badge-danger'}`}>{c.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td>
                       <button className="btn-sm btn-secondary" onClick={(e) => { e.stopPropagation(); setDetailItem(c as unknown as Record<string, unknown>); }}><Eye size={14} /></button>
-                      <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_contacts', id: c.id, label: `${c.first_name} ${c.last_name}` }); }}><Trash2 size={14} /></button>
+                      {hasPermission('crm', 'delete') && (
+                        <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_contacts', id: c.id, label: `${c.first_name} ${c.last_name}` }); }}><Trash2 size={14} /></button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -417,6 +479,7 @@ export default function CRMPage() {
       { key: 'email', label: 'Email' },
       { key: 'industry', label: 'Industry' },
       { key: 'company_size', label: 'Size' },
+      { key: 'project', label: 'Project' },
       { key: 'tags', label: 'Tags' },
       { key: 'assigned', label: 'Assigned To' },
       { key: 'status', label: 'Status' },
@@ -435,7 +498,7 @@ export default function CRMPage() {
               {loading ? (
                 <tr><td colSpan={columns.length + 1} className="text-center py-8 text-gray-400">Loading...</td></tr>
               ) : filteredCompanies.length === 0 ? (
-                <EmptyState title="No companies found" description="Create your first company to get started." actionLabel="Add Company" onAction={openCreateModal} />
+                <tr><td colSpan={99}><EmptyState title="No companies found" description="Create your first company to get started." actionLabel="Add Company" onAction={openCreateModal} /></td></tr>
               ) : (
                 filteredCompanies.slice((page - 1) * pageSize, page * pageSize).map((c) => (
                   <tr key={c.id} className="clickable" onClick={() => setDetailItem(c as unknown as Record<string, unknown>)}>
@@ -445,6 +508,7 @@ export default function CRMPage() {
                     <td className="text-sm">{c.email || '-'}</td>
                     <td className="text-sm">{c.industry || '-'}</td>
                     <td className="text-sm">{c.company_size || '-'}</td>
+                    <td className="text-xs">{projectMap[(c as any).project_id || ''] || '-'}</td>
                     <td className="text-sm">
                       {c.tags && Array.isArray(c.tags) ? c.tags.map((tag, i) => <span key={i} className="badge mr-1">{tag}</span>) : '-'}
                     </td>
@@ -452,7 +516,9 @@ export default function CRMPage() {
                     <td className="text-sm"><span className={`badge ${c.is_active ? 'badge-success' : 'badge-danger'}`}>{c.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td>
                       <button className="btn-sm btn-secondary" onClick={(e) => { e.stopPropagation(); setDetailItem(c as unknown as Record<string, unknown>); }}><Eye size={14} /></button>
-                      <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_companies', id: c.id, label: c.company_name }); }}><Trash2 size={14} /></button>
+                      {hasPermission('crm', 'delete') && (
+                        <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_companies', id: c.id, label: c.company_name }); }}><Trash2 size={14} /></button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -465,6 +531,17 @@ export default function CRMPage() {
     );
   }
 
+  async function handleDragDrop(dealId: string, targetStageId: string) {
+    try {
+      await supabase.from('crm_deals').update({ pipeline_stage_id: targetStageId }).eq('id', dealId);
+      toast.success('Deal moved');
+      loadAll();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Move failed');
+    }
+    setDragDealId(null);
+  }
+
   function renderDealsKanban() {
     if (loading) return <div className="text-center py-8 text-gray-400">Loading...</div>;
     if (stages.length === 0) return <div className="text-center py-8 text-gray-400">No pipeline stages configured.</div>;
@@ -474,18 +551,39 @@ export default function CRMPage() {
         {stages.map(stage => {
           const stageDeals = filteredDeals.filter(d => d.pipeline_stage_id === stage.id && !d.is_won && !d.is_lost);
           return (
-            <div key={stage.id} className="flex-shrink-0 w-72">
+            <div
+              key={stage.id}
+              className="flex-shrink-0 w-72"
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = e.dataTransfer.getData('dealId');
+                if (id && dragDealId === id) handleDragDrop(id, stage.id);
+              }}
+            >
               <div className="flex items-center gap-2 mb-3 px-1">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
                 <span className="font-semibold text-sm text-gray-700">{stage.name_en}</span>
                 <span className="text-xs text-gray-400 ml-auto">{stageDeals.length}</span>
               </div>
-              <div className="space-y-2 min-h-[200px]">
+              <div className="space-y-2 min-h-[200px] rounded-lg p-1 transition-colors" style={dragDealId ? { backgroundColor: 'color-mix(in srgb, var(--color-primary) 5%, transparent)' } : {}}>
                 {stageDeals.length === 0 ? (
                   <div className="text-xs text-gray-400 text-center py-6 bg-gray-50 rounded-lg">No deals</div>
                 ) : (
                   stageDeals.map(deal => (
-                    <div key={deal.id} className="card p-3 cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDetailItem(deal as unknown as Record<string, unknown>)}>
+                    <div
+                      key={deal.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragDealId(deal.id);
+                        e.dataTransfer.setData('dealId', deal.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragEnd={() => setDragDealId(null)}
+                      className="card p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
+                      style={dragDealId === deal.id ? { opacity: 0.4 } : {}}
+                      onClick={() => setDetailItem(deal as unknown as Record<string, unknown>)}
+                    >
                       <div className="font-medium text-sm text-gray-900 mb-1">{deal.deal_name}</div>
                       {deal.company_name && <div className="text-xs text-gray-500 mb-1">{deal.company_name}</div>}
                       <div className="text-sm font-bold text-gray-800 mb-2">{formatCurrency(deal.amount)}</div>
@@ -499,18 +597,6 @@ export default function CRMPage() {
                         <span>{deal.expected_close_date ? formatDate(deal.expected_close_date) : '-'}</span>
                       </div>
                       <div className="text-xs text-gray-500 mt-1">{resolveUser(deal.assigned_to)}</div>
-                      <div className="flex gap-1 mt-2 pt-2 border-t border-gray-100">
-                        {stages.indexOf(stage) > 0 && (
-                          <button className="btn-sm btn-secondary text-xs px-1.5 py-0.5" onClick={(e) => { e.stopPropagation(); moveDealStage(deal, 'prev'); }}>
-                            <ChevronLeft size={12} />
-                          </button>
-                        )}
-                        {stages.indexOf(stage) < stages.length - 1 && (
-                          <button className="btn-sm btn-secondary text-xs px-1.5 py-0.5" onClick={(e) => { e.stopPropagation(); moveDealStage(deal, 'next'); }}>
-                            <ChevronRight size={12} />
-                          </button>
-                        )}
-                      </div>
                     </div>
                   ))
                 )}
@@ -527,6 +613,7 @@ export default function CRMPage() {
       { key: 'deal_name', label: 'Deal Name' },
       { key: 'company', label: 'Company' },
       { key: 'stage', label: 'Stage' },
+      { key: 'project', label: 'Project' },
       { key: 'amount', label: 'Amount' },
       { key: 'probability', label: 'Probability' },
       { key: 'close_date', label: 'Close Date' },
@@ -547,7 +634,7 @@ export default function CRMPage() {
               {loading ? (
                 <tr><td colSpan={columns.length + 1} className="text-center py-8 text-gray-400">Loading...</td></tr>
               ) : filteredDeals.length === 0 ? (
-                <EmptyState title="No deals found" description="Create your first deal to get started." actionLabel="Add Deal" onAction={openCreateModal} />
+                <tr><td colSpan={99}><EmptyState title="No deals found" description="Create your first deal to get started." actionLabel="Add Deal" onAction={openCreateModal} /></td></tr>
               ) : (
                 filteredDeals.slice((page - 1) * pageSize, page * pageSize).map((d) => (
                   <tr key={d.id} className="clickable" onClick={() => setDetailItem(d as unknown as Record<string, unknown>)}>
@@ -558,6 +645,7 @@ export default function CRMPage() {
                         {stageName(d.pipeline_stage_id)}
                       </span>
                     </td>
+                    <td className="text-xs">{projectMap[(d as any).project_id || ''] || '-'}</td>
                     <td className="text-sm">{formatCurrency(d.amount)}</td>
                     <td className="text-sm">{d.probability != null ? `${d.probability}%` : '-'}</td>
                     <td className="text-sm">{d.expected_close_date ? formatDate(d.expected_close_date) : '-'}</td>
@@ -569,7 +657,9 @@ export default function CRMPage() {
                     </td>
                     <td>
                       <button className="btn-sm btn-secondary" onClick={(e) => { e.stopPropagation(); setDetailItem(d as unknown as Record<string, unknown>); }}><Eye size={14} /></button>
-                      <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_deals', id: d.id, label: d.deal_name }); }}><Trash2 size={14} /></button>
+                      {hasPermission('crm', 'delete') && (
+                        <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_deals', id: d.id, label: d.deal_name }); }}><Trash2 size={14} /></button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -588,6 +678,7 @@ export default function CRMPage() {
       { key: 'subject', label: 'Subject' },
       { key: 'contact', label: 'Contact' },
       { key: 'company', label: 'Company' },
+      { key: 'project', label: 'Project' },
       { key: 'date', label: 'Date' },
       { key: 'duration', label: 'Duration' },
       { key: 'direction', label: 'Direction' },
@@ -609,7 +700,7 @@ export default function CRMPage() {
               {loading ? (
                 <tr><td colSpan={columns.length + 1} className="text-center py-8 text-gray-400">Loading...</td></tr>
               ) : filteredInteractions.length === 0 ? (
-                <EmptyState title="No interactions found" description="Log your first interaction." actionLabel="Add Interaction" onAction={openCreateModal} />
+                <tr><td colSpan={99}><EmptyState title="No interactions found" description="Log your first interaction." actionLabel="Add Interaction" onAction={openCreateModal} /></td></tr>
               ) : (
                 filteredInteractions.slice((page - 1) * pageSize, page * pageSize).map((i) => (
                   <tr key={i.id} className="clickable" onClick={() => setDetailItem(i as unknown as Record<string, unknown>)}>
@@ -617,6 +708,7 @@ export default function CRMPage() {
                     <td className="text-sm font-medium">{i.subject}</td>
                     <td className="text-sm">{i.contact_name || resolveContact(i.contact_id)}</td>
                     <td className="text-sm">{i.company_name || resolveCompany(i.company_id)}</td>
+                    <td className="text-xs">{projectMap[(i as any).project_id || ''] || '-'}</td>
                     <td className="text-sm">{formatDate(i.interaction_date)}</td>
                     <td className="text-sm">{i.duration_minutes ? `${i.duration_minutes}m` : '-'}</td>
                     <td className="text-sm">{i.direction ? <span className={`badge ${i.direction === 'inbound' ? 'bg-sky-100 text-sky-800' : 'badge-warning'}`}>{i.direction}</span> : '-'}</td>
@@ -625,7 +717,9 @@ export default function CRMPage() {
                     <td className="text-sm">{i.created_by_name || resolveUser(i.created_by)}</td>
                     <td>
                       <button className="btn-sm btn-secondary" onClick={(e) => { e.stopPropagation(); setDetailItem(i as unknown as Record<string, unknown>); }}><Eye size={14} /></button>
-                      <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_interactions', id: i.id, label: i.subject }); }}><Trash2 size={14} /></button>
+                      {hasPermission('crm', 'delete') && (
+                        <button className="btn-sm btn-secondary ml-1" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_interactions', id: i.id, label: i.subject }); }}><Trash2 size={14} /></button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -644,6 +738,7 @@ export default function CRMPage() {
       { key: 'subject', label: 'Subject' },
       { key: 'contact', label: 'Contact' },
       { key: 'company', label: 'Company' },
+      { key: 'project', label: 'Project' },
       { key: 'due_date', label: 'Due Date' },
       { key: 'priority', label: 'Priority' },
       { key: 'status', label: 'Status' },
@@ -663,7 +758,7 @@ export default function CRMPage() {
               {loading ? (
                 <tr><td colSpan={columns.length + 1} className="text-center py-8 text-gray-400">Loading...</td></tr>
               ) : filteredTasks.length === 0 ? (
-                <EmptyState title="No tasks found" description="Create your first task." actionLabel="Add Task" onAction={openCreateModal} />
+                <tr><td colSpan={99}><EmptyState title="No tasks found" description="Create your first task." actionLabel="Add Task" onAction={openCreateModal} /></td></tr>
               ) : (
                 filteredTasks.slice((page - 1) * pageSize, page * pageSize).map((t) => (
                   <tr key={t.id} className="clickable" onClick={() => setDetailItem(t as unknown as Record<string, unknown>)}>
@@ -671,6 +766,7 @@ export default function CRMPage() {
                     <td className="text-sm font-medium">{t.subject}</td>
                     <td className="text-sm">{t.contact_name || resolveContact(t.contact_id)}</td>
                     <td className="text-sm">{t.company_name || resolveCompany(t.company_id)}</td>
+                    <td className="text-xs">{projectMap[(t as any).project_id || ''] || '-'}</td>
                     <td className="text-sm">{t.due_date ? formatDate(t.due_date) : '-'}</td>
                     <td className="text-sm"><span className={`badge ${priorityColors[t.priority] || 'badge-neutral'}`}>{t.priority}</span></td>
                     <td className="text-sm"><span className={`badge ${statusColors[t.status] || 'badge-neutral'}`}>{t.status}</span></td>
@@ -681,7 +777,9 @@ export default function CRMPage() {
                         {t.status === 'pending' && (
                           <button className="btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); markTaskComplete(t); }}><Check size={14} /></button>
                         )}
-                        <button className="btn-sm btn-secondary" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_tasks', id: t.id, label: t.subject }); }}><Trash2 size={14} /></button>
+                        {hasPermission('crm', 'delete') && (
+                          <button className="btn-sm btn-secondary" style={{ color: 'var(--color-danger)' }} onClick={(e) => { e.stopPropagation(); setDeleting({ table: 'crm_tasks', id: t.id, label: t.subject }); }}><Trash2 size={14} /></button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -724,6 +822,12 @@ export default function CRMPage() {
               </div>
               <div><label className="label">Tags (comma-separated)</label><input className="input" value={contactForm.tags} onChange={e => setContactForm({ ...contactForm, tags: e.target.value })} placeholder="tag1, tag2" /></div>
               <div className="col-span-2"><label className="label">Notes</label><textarea className="input" rows={3} value={contactForm.notes} onChange={e => setContactForm({ ...contactForm, notes: e.target.value })} /></div>
+              <div className="col-span-2"><label className="label">Project</label>
+                <select className="input" value={contactForm.project_id} onChange={e => setContactForm({ ...contactForm, project_id: e.target.value })}>
+                  <option value="">-- Select Project --</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.name_en}</option>)}
+                </select>
+              </div>
               <div><label className="label">Assigned To</label>
                 <select className="input" value={contactForm.assigned_to} onChange={e => setContactForm({ ...contactForm, assigned_to: e.target.value })}>
                   <option value="">-- Select --</option>
@@ -768,6 +872,12 @@ export default function CRMPage() {
               </div>
               <div><label className="label">Tags (comma-separated)</label><input className="input" value={companyForm.tags} onChange={e => setCompanyForm({ ...companyForm, tags: e.target.value })} placeholder="tag1, tag2" /></div>
               <div className="col-span-2"><label className="label">Notes</label><textarea className="input" rows={3} value={companyForm.notes} onChange={e => setCompanyForm({ ...companyForm, notes: e.target.value })} /></div>
+              <div className="col-span-2"><label className="label">Project</label>
+                <select className="input" value={companyForm.project_id} onChange={e => setCompanyForm({ ...companyForm, project_id: e.target.value })}>
+                  <option value="">-- Select Project --</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.name_en}</option>)}
+                </select>
+              </div>
               <div><label className="label">Assigned To</label>
                 <select className="input" value={companyForm.assigned_to} onChange={e => setCompanyForm({ ...companyForm, assigned_to: e.target.value })}>
                   <option value="">-- Select --</option>
@@ -815,6 +925,12 @@ export default function CRMPage() {
                 <select className="input" value={dealForm.assigned_to} onChange={e => setDealForm({ ...dealForm, assigned_to: e.target.value })}>
                   <option value="">-- Select --</option>
                   {users.map(u => <option key={u.id} value={u.id}>{u.full_name_en}</option>)}
+                </select>
+              </div>
+              <div><label className="label">Project</label>
+                <select className="input" value={dealForm.project_id} onChange={e => setDealForm({ ...dealForm, project_id: e.target.value })}>
+                  <option value="">-- Select Project --</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.name_en}</option>)}
                 </select>
               </div>
               <div><label className="label">Description</label><textarea className="input" rows={3} value={dealForm.description} onChange={e => setDealForm({ ...dealForm, description: e.target.value })} /></div>
@@ -867,6 +983,12 @@ export default function CRMPage() {
                 <div><label className="label">Follow-up Date</label><input type="date" className="input" value={interactionForm.follow_up_date} onChange={e => setInteractionForm({ ...interactionForm, follow_up_date: e.target.value })} /></div>
                 <div><label className="label">Follow-up Notes</label><input className="input" value={interactionForm.follow_up_notes} onChange={e => setInteractionForm({ ...interactionForm, follow_up_notes: e.target.value })} /></div>
               </div>
+              <div><label className="label">Project</label>
+                <select className="input" value={interactionForm.project_id} onChange={e => setInteractionForm({ ...interactionForm, project_id: e.target.value })}>
+                  <option value="">-- Select Project --</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.name_en}</option>)}
+                </select>
+              </div>
             </div>
           )}
 
@@ -915,6 +1037,12 @@ export default function CRMPage() {
                   </select>
                 </div>
               </div>
+              <div><label className="label">Project</label>
+                <select className="input" value={taskForm.project_id} onChange={e => setTaskForm({ ...taskForm, project_id: e.target.value })}>
+                  <option value="">-- Select Project --</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.name_en}</option>)}
+                </select>
+              </div>
             </div>
           )}
 
@@ -938,6 +1066,7 @@ export default function CRMPage() {
   function renderDetailModal() {
     if (!detailItem) return null;
     const item = detailItem;
+    const itemId = item.id as string;
     const excluded = ['id', 'created_at', 'updated_at', 'is_active', 'is_lost'];
     const labels: Record<string, string> = {
       first_name: 'First Name', last_name: 'Last Name', email: 'Email', phone: 'Phone', mobile: 'Mobile',
@@ -953,9 +1082,15 @@ export default function CRMPage() {
       task_type: 'Type', due_date: 'Due Date', priority: 'Priority', status: 'Status',
       website: 'Website',
     };
+
+    const isDeal = activeTab === 'deals';
+    const isContact = activeTab === 'contacts';
+    const relatedTasks = isContact ? tasks.filter(t => t.contact_id === itemId) : isDeal ? tasks.filter(t => t.deal_id === itemId) : [];
+    const relatedInteractions = isContact ? interactions.filter(i => i.contact_id === itemId) : isDeal ? interactions.filter(i => i.deal_id === itemId) : [];
+    const relatedDeals = isContact ? deals.filter(d => d.contact_id === itemId) : [];
     return (
       <div className="modal-overlay" onClick={() => setDetailItem(null)}>
-        <div className="modal max-w-lg p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="modal max-w-xl p-6" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold capitalize">{activeTab === 'deals' ? 'Deal' : activeTab === 'interactions' ? 'Interaction' : activeTab === 'tasks' ? 'Task' : activeTab.slice(0, -1)} Details</h3>
             <button className="btn-sm btn-secondary" onClick={() => setDetailItem(null)}><X size={16} /></button>
@@ -989,12 +1124,178 @@ export default function CRMPage() {
               </div>
             ))}
           </div>
-          <div className="flex justify-end mt-4">
+
+          {(isContact || isDeal) && (
+            <div className="mt-4 space-y-4 border-t pt-4" style={{borderColor: 'var(--color-border)'}}>
+              {isContact && relatedDeals.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Related Deals ({relatedDeals.length})</h4>
+                  <div className="space-y-1">
+                    {relatedDeals.map(d => (
+                      <div key={d.id} className="flex items-center justify-between text-xs p-2 rounded" style={{backgroundColor: 'color-mix(in srgb, var(--color-text) 4%, transparent)'}}>
+                        <span className="font-medium">{d.deal_name}</span>
+                        <span className="badge" style={{backgroundColor: stageColor(d.pipeline_stage_id) + '20', color: stageColor(d.pipeline_stage_id)}}>{stageName(d.pipeline_stage_id)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {relatedTasks.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Tasks & Activity ({relatedTasks.length})</h4>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {relatedTasks.map(t => (
+                      <div key={t.id} className="flex items-center justify-between text-xs p-2 rounded" style={{backgroundColor: 'color-mix(in srgb, var(--color-text) 4%, transparent)'}}>
+                        <span className="font-medium truncate mr-2">{t.subject}</span>
+                        <span className={`badge shrink-0 ${statusColors[t.status] || 'badge-neutral'}`}>{t.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {relatedInteractions.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold mb-2">Interaction History ({relatedInteractions.length})</h4>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {relatedInteractions.map(i => (
+                      <div key={i.id} className="flex items-center justify-between text-xs p-2 rounded" style={{backgroundColor: 'color-mix(in srgb, var(--color-text) 4%, transparent)'}}>
+                        <span className="font-medium truncate mr-2">{i.subject}</span>
+                        <span className="text-gray-500 shrink-0">{formatDate(i.interaction_date)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {relatedTasks.length === 0 && relatedInteractions.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">No activity records found. Stage changes, won/lost status, and escalations are automatically logged here.</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 mt-4">
+            {isDeal && !item.is_won && !item.is_lost && (
+              <>
+                <button className="btn-sm" style={{ backgroundColor: '#22c55e', color: 'white' }} onClick={() => markDealWon(itemId)}>
+                  <Check size={14} /> Mark Won
+                </button>
+                <button className="btn-sm" style={{ backgroundColor: '#ef4444', color: 'white' }} onClick={() => markDealLost(itemId)}>
+                  <X size={14} /> Mark Lost
+                </button>
+              </>
+            )}
             <button className="btn-secondary btn-sm" onClick={() => setDetailItem(null)}>{t('common.close')}</button>
           </div>
         </div>
       </div>
     );
+  }
+
+  function renderWhatsAppSection() {
+    const waMsgsByPhone: Record<string, any[]> = {};
+    waMessages.forEach((m: any) => {
+      const key = m.phone_number || m.from_number || m.to_number;
+      if (!key) return;
+      if (!waMsgsByPhone[key]) waMsgsByPhone[key] = [];
+      waMsgsByPhone[key].push(m);
+    });
+    const filteredPhones = waContacts.filter(c => !search || c.contactName.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search));
+    return (<>
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="card p-4">
+            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1"><MessageCircle size={14} /> New WhatsApp Message</h3>
+            <select className="input mb-2 text-sm" value={waSendForm.phone} onChange={e => setWaSendForm({ ...waSendForm, phone: e.target.value })}>
+              <option value="">Select contact...</option>
+              {waContacts.map(c => <option key={c.phone} value={c.phone}>{c.contactName} ({c.phone})</option>)}
+            </select>
+            <select className="input mb-2 text-sm" value={waSendForm.project_id} onChange={e => setWaSendForm({ ...waSendForm, project_id: e.target.value })}>
+              <option value="">No project</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.project_code}</option>)}
+            </select>
+            <textarea className="input mb-2 text-sm" rows={3} placeholder="Message text..." value={waSendForm.message} onChange={e => setWaSendForm({ ...waSendForm, message: e.target.value })} />
+            <button className="btn-primary btn-sm" disabled={!waSendForm.phone || !waSendForm.message || waSending}
+              onClick={async () => {
+                if (!waSendForm.phone || !waSendForm.message) return;
+                setWaSending(true);
+                try {
+                  await supabase.from('crm_whatsapp_messages').insert({
+                    phone_number: waSendForm.phone, direction: 'outbound', message_body: waSendForm.message, status: 'sent',
+                    project_id: waSendForm.project_id || null,
+                  });
+                  toast.success('Message sent');
+                  setWaSendForm({ phone: '', message: '', project_id: '' });
+                  loadAll();
+                } catch { toast.error('Send failed'); }
+                finally { setWaSending(false); }
+              }}>
+              <Send size={14} /> {waSending ? 'Sending...' : 'Send'}
+            </button>
+          </div>
+          <div className="card p-4 overflow-y-auto max-h-80">
+            <h3 className="text-sm font-semibold mb-2 flex items-center gap-1"><Smartphone size={14} /> WhatsApp Contacts</h3>
+            {filteredPhones.length === 0 ? (
+              <p className="text-xs text-gray-400">No contacts with phone numbers</p>
+            ) : filteredPhones.map(c => {
+              const msgs = waMsgsByPhone[c.phone] || [];
+              const lastMsg = msgs[0];
+              return (
+                <div key={c.phone} className="flex items-center justify-between py-1.5 border-b text-xs" style={{ borderColor: 'var(--color-border)' }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{c.contactName}</p>
+                    <p className="text-gray-400">{c.phone}</p>
+                    {lastMsg && (
+                      <p className="text-gray-500 truncate mt-0.5 flex items-center gap-1">
+                        {lastMsg.media_url ? (
+                          <button onClick={() => setWaPreviewFile({ url: lastMsg.media_url, fileName: 'media', mimeType: '' })}
+                            className="shrink-0 p-0.5 rounded hover:bg-gray-100 transition-colors">
+                            {lastMsg.media_url.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i) ? <Image size={12} style={{ color: 'var(--color-primary)' }} /> : <Paperclip size={12} style={{ color: 'var(--color-text-secondary)' }} />}
+                          </button>
+                        ) : null}
+                        <span className="truncate">{lastMsg.message_body}</span>
+                      </p>
+                    )}
+                  </div>
+                  <span className={`badge text-[10px] ${msgs.length > 0 ? 'badge-success' : 'badge-neutral'}`}>{msgs.length}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Recent Messages ({waMessages.length})</h3>
+          <div className="space-y-1 max-h-60 overflow-y-auto">
+            {waMessages.slice(0, 50).map((m: any) => {
+              const contact = waContacts.find(c => c.phone === (m.phone_number || m.from_number || m.to_number));
+              return (
+                <div key={m.id} className="flex items-start gap-2 p-2 rounded text-xs" style={{ backgroundColor: 'color-mix(in srgb, var(--color-text) 3%, transparent)' }}>
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                    style={{ backgroundColor: m.direction === 'inbound' ? '#e0f2fe' : '#fef3c7', color: m.direction === 'inbound' ? '#0284c7' : '#d97706' }}>
+                    {m.direction === 'inbound' ? '←' : '→'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">{contact?.contactName || m.phone_number || m.from_number || m.to_number}</p>
+                    <p className="text-gray-500 truncate flex items-center gap-1">
+                      {m.media_url ? (
+                        <button onClick={() => setWaPreviewFile({ url: m.media_url, fileName: 'media', mimeType: '' })}
+                          className="shrink-0 p-0.5 rounded hover:bg-gray-100 transition-colors">
+                          {m.media_url.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i) ? <Image size={12} style={{ color: 'var(--color-primary)' }} /> : <Paperclip size={12} style={{ color: 'var(--color-text-secondary)' }} />}
+                        </button>
+                      ) : null}
+                      <span className="truncate">{m.message_body}</span>
+                    </p>
+                    <p className="text-gray-400 mt-0.5">{new Date(m.created_at).toLocaleString()} &middot; <span className="capitalize">{m.status}</span>{m.project_id ? ` · ${projectMap[m.project_id] || ''}` : ''}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      {waPreviewFile && <FilePreviewModal url={waPreviewFile.url} fileName={waPreviewFile.fileName} mimeType={waPreviewFile.mimeType} onClose={() => setWaPreviewFile(null)} />}
+    </>);
   }
 
   function handleExport() {
@@ -1006,6 +1307,7 @@ export default function CRMPage() {
       case 'deals': data = filteredDeals as unknown as Record<string, unknown>[]; name = 'crm_deals'; break;
       case 'interactions': data = filteredInteractions as unknown as Record<string, unknown>[]; name = 'crm_interactions'; break;
       case 'tasks': data = filteredTasks as unknown as Record<string, unknown>[]; name = 'crm_tasks'; break;
+      case 'whatsapp': return;
       default: return;
     }
     if (data.length) exportCSV(data, `${name}_${new Date().toISOString().slice(0, 10)}.csv`);
@@ -1051,11 +1353,32 @@ export default function CRMPage() {
           <button className="btn-sm btn-secondary" onClick={() => setShowImport(true)}>
             <Upload size={14} /> {t('admin.import_csv')}
           </button>
-          <button className="btn-primary btn-sm" onClick={openCreateModal}>
+          {hasPermission('crm', 'create') && <button className="btn-primary btn-sm" onClick={openCreateModal}>
             <Plus size={16} /> Add {activeTab === 'deals' ? 'Deal' : activeTab === 'interactions' ? 'Interaction' : activeTab === 'tasks' ? 'Task' : activeTab.slice(0, -1)}
-          </button>
+          </button>}
         </div>
       </div>
+
+      {pipelineKpis.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {pipelineKpis.map((k) => {
+            const Icon = k.icon;
+            return (
+              <div key={k.label} className="stat-glass cursor-pointer" onClick={() => navigate('/analytics')}>
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${k.color}15`, color: k.color }}>
+                    <Icon size={18} />
+                  </div>
+                  <div>
+                    <p className="text-base font-bold">{k.value}</p>
+                    <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{k.label}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{borderBottom: '1px solid var(--color-border)'}}>
         <div className="flex gap-1">
@@ -1079,10 +1402,17 @@ export default function CRMPage() {
         </div>
       </div>
 
+      {activeTab !== 'whatsapp' && (
       <div className="flex items-center justify-between gap-4">
-        <div className="relative max-w-sm flex-1">
-          <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input className="input ps-9" placeholder={t('common.search')} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+        <div className="flex items-center gap-2 flex-1">
+          <select className="select text-sm" style={{ width: '150px' }} value={filterProject} onChange={e => { setFilterProject(e.target.value); setPage(1); }}>
+            <option value="">All Projects</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.project_code}</option>)}
+          </select>
+          <div className="relative max-w-sm flex-1">
+            <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input className="input ps-9" placeholder={t('common.search')} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          </div>
         </div>
         {activeTab === 'deals' && (
           <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
@@ -1091,12 +1421,14 @@ export default function CRMPage() {
           </div>
         )}
       </div>
+      )}
 
       {activeTab === 'contacts' && renderContactsSection()}
       {activeTab === 'companies' && renderCompaniesSection()}
       {activeTab === 'deals' && (dealView === 'kanban' ? renderDealsKanban() : renderDealsList())}
       {activeTab === 'interactions' && renderInteractionsSection()}
       {activeTab === 'tasks' && renderTasksSection()}
+      {activeTab === 'whatsapp' && renderWhatsAppSection()}
 
       {showForm && renderCreateEditModal()}
       {detailItem && renderDetailModal()}

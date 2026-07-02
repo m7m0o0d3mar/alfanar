@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { useT } from '../hooks/useTranslation';
 import { supabase } from '../services/supabase';
 import { useToast } from '../context/ToastContext';
@@ -7,19 +8,23 @@ import EmptyState from '../components/EmptyState';
 import { exportCSV } from '../utils/csv';
 import CsvImportModal from '../components/CsvImportModal';
 import { type SyncConfig } from '../services/syncService';
-import { Plus, Download, Upload, Search, TrendingDown, TrendingUp, DollarSign, FileText } from 'lucide-react';
+import { Plus, Download, Upload, Search, TrendingDown, TrendingUp, DollarSign } from 'lucide-react';
 import Pagination from '../components/Pagination';
 
 interface Invoice { id: string; invoice_no: string; contract_id: string; amount: number; invoice_date: string; due_date: string; status: string; notes: string; }
 interface BudgetEntry { id: string; budget_code: string; description: string; project_id: string; category: string; budget_type: string; total_budget: number; used_amount: number; currency: string; }
 interface Project { id: string; name_en: string; project_code: string; }
 interface PO { id: string; po_no: string; project_id: string; supplier_id: string; total_amount: number; status: string; }
-interface Contract { id: string; contract_no: string; title_en: string; }
+interface Contract { id: string; contract_no: string; title_en: string; project_id: string; }
+interface Account { id: string; account_code: string; name_en: string; name_ar: string; type: string; }
+interface JournalEntry { id: string; entry_no: string; entry_date: string; description: string; total_debit: number; total_credit: number; status: string; }
+interface ExpenseClaim { id: string; claim_no: string; title: string; employee_id: string; total_amount: number; currency: string; status: string; created_at: string; project_id?: string; project?: { project_code: string; name_en: string }; }
 
-type Tab = 'invoices' | 'budget' | 'budget_vs_actual';
+type Tab = 'invoices' | 'budget' | 'budget_vs_actual' | 'accounts' | 'journal' | 'expenses';
 
 export default function FinancePage() {
   const t = useT();
+  const { hasPermission } = useAuth();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<Tab>('invoices');
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -27,6 +32,9 @@ export default function FinancePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [pos, setPos] = useState<PO[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseClaim[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -43,6 +51,14 @@ export default function FinancePage() {
     currency: 'SAR', description: '',
   });
 
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    title: '', description: '', employee_id: '', total_amount: '', currency: 'SAR', project_id: '',
+  });
+
+  const projectMap = Object.fromEntries(projects.map(p => [p.id, p.project_code]));
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [activeTab]);
   useEffect(() => { setPage(1); }, [activeTab]);
   useEffect(() => { setPage(1); }, [debouncedSearch]);
@@ -50,19 +66,24 @@ export default function FinancePage() {
   async function load() {
     setLoading(true);
     try {
-      const tbl = activeTab === 'invoices' ? 'contract_invoices' : 'budget';
-      const [invRes, budRes, projRes, poRes, conRes] = await Promise.all([
-        activeTab === 'invoices' ? supabase.from(tbl).select('*').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
+      const [invRes, budRes, projRes, poRes, conRes, accRes, jnlRes, expRes] = await Promise.all([
+        activeTab === 'invoices' ? supabase.from('contract_invoices').select('*').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
         activeTab === 'budget' || activeTab === 'budget_vs_actual' ? supabase.from('budget').select('*').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
         supabase.from('projects').select('id, name_en, project_code').eq('is_active', true).order('name_en'),
         activeTab === 'invoices' ? supabase.from('purchase_orders').select('id, po_no, project_id, supplier_id, total_amount, status').order('po_no') : Promise.resolve({ data: [] }),
-        activeTab === 'invoices' ? supabase.from('contracts').select('id, contract_no, title_en').order('contract_no') : Promise.resolve({ data: [] }),
+        activeTab === 'invoices' ? supabase.from('contracts').select('id, contract_no, title_en, project_id').order('contract_no') : Promise.resolve({ data: [] }),
+        activeTab === 'accounts' ? supabase.from('chart_of_accounts').select('*').order('account_code') : Promise.resolve({ data: [] }),
+        activeTab === 'journal' ? supabase.from('journal_entries').select('*').order('entry_date', { ascending: false }) : Promise.resolve({ data: [] }),
+        activeTab === 'expenses' ? supabase.from('expense_claims').select('*, project:projects(project_code, name_en)').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
       ]);
       setInvoices(invRes.data as Invoice[] || []);
       setBudget(budRes.data as BudgetEntry[] || []);
       setProjects(projRes.data as Project[] || []);
       setPos(poRes.data as PO[] || []);
       setContracts(conRes.data as Contract[] || []);
+      setAccounts(accRes.data as Account[] || []);
+      setJournalEntries(jnlRes.data as JournalEntry[] || []);
+      setExpenses(expRes.data as ExpenseClaim[] || []);
     } catch (err) {
       console.error('Failed to load finance data:', err);
       toast.error('Failed to load finance data. Please check your connection and try again.');
@@ -71,9 +92,27 @@ export default function FinancePage() {
     }
   }
 
-  const filtered = (activeTab === 'invoices' ? invoices : budget).filter(i => {
+  const filteredSource = activeTab === 'invoices' ? invoices
+    : activeTab === 'budget' ? budget
+    : activeTab === 'accounts' ? accounts
+    : activeTab === 'journal' ? journalEntries
+    : activeTab === 'expenses' ? expenses
+    : [];
+  const filtered = (filteredSource).filter(i => {
     if (!debouncedSearch) return true;
     const q = debouncedSearch.toLowerCase();
+    if (activeTab === 'accounts') {
+      const a = i as Account;
+      return a.account_code.toLowerCase().includes(q) || a.name_en.toLowerCase().includes(q) || a.name_ar.toLowerCase().includes(q);
+    }
+    if (activeTab === 'journal') {
+      const j = i as JournalEntry;
+      return j.entry_no.toLowerCase().includes(q) || j.description.toLowerCase().includes(q);
+    }
+    if (activeTab === 'expenses') {
+      const e = i as ExpenseClaim;
+      return e.claim_no.toLowerCase().includes(q) || e.title.toLowerCase().includes(q);
+    }
     const code = (activeTab === 'invoices' ? (i as Invoice).invoice_no : (i as BudgetEntry).budget_code) || '';
     const desc = activeTab === 'budget' ? (i as BudgetEntry).description : (i as Invoice).notes;
     return code.toLowerCase().includes(q) || ((desc || '')).toLowerCase().includes(q);
@@ -92,7 +131,7 @@ export default function FinancePage() {
     for (const po of toCreate) {
       const invoiceNo = `INV-${po.po_no}`;
       try {
-        const relatedContract = contracts.find(c => c.id === po.project_id);
+        const relatedContract = contracts.find(c => c.project_id === po.project_id);
         const contractId = relatedContract?.id;
         if (!contractId) {
           console.warn(`No contract found for PO ${po.po_no} — auto-create skipped`);
@@ -153,6 +192,31 @@ export default function FinancePage() {
     } finally { setSaving(false); }
   }
 
+  async function saveExpenseClaim() {
+    setFormError('');
+    if (!expenseForm.title.trim()) { setFormError('Title is required'); return; }
+    if (!expenseForm.total_amount || parseFloat(expenseForm.total_amount) <= 0) { setFormError('Amount must be greater than 0'); return; }
+    setSaving(true);
+    try {
+      const claimNo = `CLM-${Date.now()}`;
+      const { error } = await supabase.from('expense_claims').insert({
+        claim_no: claimNo, title: expenseForm.title,
+        description: expenseForm.description || null, employee_id: expenseForm.employee_id || null,
+        total_amount: parseFloat(expenseForm.total_amount), currency: expenseForm.currency,
+        project_id: expenseForm.project_id || null, status: 'pending',
+      });
+      if (error) throw error;
+      toast.success(`Claim "${claimNo}" created`);
+      setShowExpenseForm(false);
+      setExpenseForm({ title: '', description: '', employee_id: '', total_amount: '', currency: 'SAR', project_id: '' });
+      load();
+    } catch (err: unknown) {
+      console.error('Expense claim save failed:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setFormError(msg); toast.error(msg);
+    } finally { setSaving(false); }
+  }
+
   const invoiceColumns = [
     { key: 'invoice_no', label: 'Invoice No', required: true },
     { key: 'invoice_type', label: 'Invoice Type' },
@@ -169,7 +233,7 @@ export default function FinancePage() {
     { key: 'used_amount', label: 'Used Amount', type: 'number' as const },
   ];
 
-  function friendlyError(err: unknown, table: string): string {
+  function friendlyError(err: unknown, _table: string): string {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('violates foreign key constraint')) {
       if (msg.includes('contract_id')) return 'Contract ID not found. Make sure the contract exists or leave blank to use the first available.';
@@ -218,14 +282,16 @@ export default function FinancePage() {
     <div className="page-enter space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('nav.finance')}</h1>
-          <p className="text-gray-500 mt-1">{activeTab === 'invoices' ? `${invoices.length} Invoices` : activeTab === 'budget' ? `${budget.length} Budget Entries` : `${budgetVsActual.length} Projects`}</p>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{t('nav.finance')}</h1>
+          <p className="mt-1" style={{ color: 'var(--color-text-muted)' }}>{activeTab === 'invoices' ? `${invoices.length} Invoices` : activeTab === 'budget' ? `${budget.length} Budget Entries` : activeTab === 'budget_vs_actual' ? `${budgetVsActual.length} Projects` : activeTab === 'accounts' ? `${accounts.length} Accounts` : activeTab === 'journal' ? `${journalEntries.length} Journal Entries` : `${expenses.length} Expense Claims`}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button className="btn-sm btn-secondary" onClick={() => { const data = activeTab === 'invoices' ? filtered : activeTab === 'budget' ? filtered : budgetVsActual; if (data.length) exportCSV(data as unknown as Record<string, unknown>[], `finance_${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`); }}><Download size={14} /> Export</button>
-          {activeTab !== 'budget_vs_actual' && <button className="btn-sm btn-secondary" onClick={() => setShowImport(true)}><Upload size={14} /> Import</button>}
+          <button className="btn-sm btn-secondary" onClick={() => { const data = activeTab === 'invoices' ? filtered : activeTab === 'budget' ? filtered : activeTab === 'budget_vs_actual' ? budgetVsActual : filtered; if (data.length) exportCSV(data as unknown as Record<string, unknown>[], `finance_${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`); }}><Download size={14} /> Export</button>
+          {(activeTab === 'invoices' || activeTab === 'budget') && <button className="btn-sm btn-secondary" onClick={() => setShowImport(true)}><Upload size={14} /> Import</button>}
           {activeTab === 'invoices' && <button className="btn-sm btn-secondary" onClick={autoCreateInvoicesFromPOs} disabled={saving}><TrendingUp size={14} /> Auto from POs</button>}
-          {activeTab !== 'budget_vs_actual' && <button className="btn-primary btn-sm" onClick={openNewForm}><Plus size={16} /> {activeTab === 'invoices' ? 'New Invoice' : 'New Budget'}</button>}
+          {activeTab === 'invoices' && hasPermission('finance', 'create') && <button className="btn-primary btn-sm" onClick={openNewForm}><Plus size={16} /> New Invoice</button>}
+          {activeTab === 'budget' && hasPermission('finance', 'create') && <button className="btn-primary btn-sm" onClick={openNewForm}><Plus size={16} /> New Budget</button>}
+          {activeTab === 'expenses' && hasPermission('finance', 'create') && <button className="btn-primary btn-sm" onClick={() => { setExpenseForm({ title: '', description: '', employee_id: '', total_amount: '', currency: 'SAR', project_id: '' }); setShowExpenseForm(true); }}><Plus size={16} /> New Claim</button>}
         </div>
       </div>
 
@@ -233,6 +299,9 @@ export default function FinancePage() {
         <button className={`tab whitespace-nowrap ${activeTab === 'invoices' ? 'tab-active' : ''}`} onClick={() => setActiveTab('invoices')}>Invoices</button>
         <button className={`tab whitespace-nowrap ${activeTab === 'budget' ? 'tab-active' : ''}`} onClick={() => setActiveTab('budget')}>Budget</button>
         <button className={`tab whitespace-nowrap ${activeTab === 'budget_vs_actual' ? 'tab-active' : ''}`} onClick={() => setActiveTab('budget_vs_actual')}>Budget vs Actual</button>
+        <button className={`tab whitespace-nowrap ${activeTab === 'accounts' ? 'tab-active' : ''}`} onClick={() => setActiveTab('accounts')}>Chart of Accounts</button>
+        <button className={`tab whitespace-nowrap ${activeTab === 'journal' ? 'tab-active' : ''}`} onClick={() => setActiveTab('journal')}>Journal Entries</button>
+        <button className={`tab whitespace-nowrap ${activeTab === 'expenses' ? 'tab-active' : ''}`} onClick={() => setActiveTab('expenses')}>Expense Claims</button>
       </div>
 
       <div className="relative max-w-sm">
@@ -248,7 +317,7 @@ export default function FinancePage() {
               <thead><tr><th>Invoice No</th><th>PO</th><th>Amount</th><th>Date</th><th>Due</th><th>Status</th></tr></thead>
               <tbody>
                 {loading ? <tr><td colSpan={6} className="text-center py-8 text-gray-400">Loading...</td></tr>
-                : (filtered as Invoice[]).length === 0 ? <EmptyState title="No invoices" description="Create an invoice linked to a PO or project." actionLabel="New Invoice" onAction={openNewForm} />
+                : (filtered as Invoice[]).length === 0 ? <tr><td colSpan={6}><EmptyState title="No invoices" description="Create an invoice linked to a PO or project." actionLabel="New Invoice" onAction={openNewForm} /></td></tr>
                 : (filtered as Invoice[]).slice((page - 1) * pageSize, page * pageSize).map(inv => (
                     <tr key={inv.id}>
                       <td className="font-mono text-xs">{inv.invoice_no}</td>
@@ -271,10 +340,10 @@ export default function FinancePage() {
         <div className="card">
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Code</th><th>Description</th><th>Category</th><th>Type</th><th>Total</th><th>Used</th><th>Remaining</th><th>%</th></tr></thead>
+              <thead><tr><th>Code</th><th>Description</th><th>Project</th><th>Category</th><th>Type</th><th>Total</th><th>Used</th><th>Remaining</th><th>%</th></tr></thead>
               <tbody>
-                {loading ? <tr><td colSpan={8} className="text-center py-8 text-gray-400">Loading...</td></tr>
-                : (filtered as BudgetEntry[]).length === 0 ? <EmptyState title="No budget entries" description="Create budget entries to track project spending." actionLabel="New Budget" onAction={openNewForm} />
+                {loading ? <tr><td colSpan={9} className="text-center py-8 text-gray-400">Loading...</td></tr>
+                : (filtered as BudgetEntry[]).length === 0 ? <tr><td colSpan={9}><EmptyState title="No budget entries" description="Create budget entries to track project spending." actionLabel="New Budget" onAction={openNewForm} /></td></tr>
                 : (filtered as BudgetEntry[]).slice((page - 1) * pageSize, page * pageSize).map(b => {
                     const used = Number(b.used_amount || 0);
                     const total = Number(b.total_budget || 0);
@@ -283,6 +352,7 @@ export default function FinancePage() {
                       <tr key={b.id}>
                         <td className="font-mono text-xs">{b.budget_code.replace('BUG-', 'BDG-')}</td>
                         <td className="text-sm">{b.description}</td>
+                        <td className="text-xs">{projectMap[b.project_id] || '-'}</td>
                         <td className="text-sm">{b.category || '-'}</td>
                         <td><span className="badge capitalize">{b.budget_type}</span></td>
                         <td className="font-mono text-xs">{total.toLocaleString()} {b.currency}</td>
@@ -363,6 +433,83 @@ export default function FinancePage() {
         </div>
       )}
 
+      {/* Chart of Accounts tab */}
+      {activeTab === 'accounts' && (
+        <div className="card">
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Account Code</th><th>Name (EN)</th><th>Name (AR)</th><th>Type</th></tr></thead>
+              <tbody>
+                {loading ? <tr><td colSpan={4} className="text-center py-8 text-gray-400">Loading...</td></tr>
+                : (filtered as Account[]).length === 0 ? <tr><td colSpan={4}><EmptyState title="No accounts" description="No chart of accounts found." /></td></tr>
+                : (filtered as Account[]).slice((page - 1) * pageSize, page * pageSize).map(a => (
+                    <tr key={a.id}>
+                      <td className="font-mono text-xs">{a.account_code}</td>
+                      <td className="text-sm">{a.name_en}</td>
+                      <td className="text-sm">{a.name_ar}</td>
+                      <td><span className="badge capitalize">{a.type}</span></td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={page} pageSize={pageSize} total={(filtered as Account[]).length} onChange={setPage} />
+        </div>
+      )}
+
+      {/* Journal Entries tab */}
+      {activeTab === 'journal' && (
+        <div className="card">
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Entry No</th><th>Date</th><th>Description</th><th>Total Debit</th><th>Total Credit</th><th>Status</th></tr></thead>
+              <tbody>
+                {loading ? <tr><td colSpan={6} className="text-center py-8 text-gray-400">Loading...</td></tr>
+                : (filtered as JournalEntry[]).length === 0 ? <tr><td colSpan={6}><EmptyState title="No journal entries" description="No journal entries found." /></td></tr>
+                : (filtered as JournalEntry[]).slice((page - 1) * pageSize, page * pageSize).map(j => (
+                    <tr key={j.id}>
+                      <td className="font-mono text-xs">{j.entry_no}</td>
+                      <td className="text-sm">{j.entry_date}</td>
+                      <td className="text-sm">{j.description}</td>
+                      <td className="font-mono text-xs">{Number(j.total_debit || 0).toLocaleString()}</td>
+                      <td className="font-mono text-xs">{Number(j.total_credit || 0).toLocaleString()}</td>
+                      <td><span className={`badge capitalize ${j.status === 'posted' ? 'badge-success' : j.status === 'draft' ? 'badge-neutral' : 'badge-warning'}`}>{j.status}</span></td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={page} pageSize={pageSize} total={(filtered as JournalEntry[]).length} onChange={setPage} />
+        </div>
+      )}
+
+      {/* Expense Claims tab */}
+      {activeTab === 'expenses' && (
+        <div className="card">
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Claim No</th><th>Title</th><th>Project</th><th>Employee</th><th>Amount</th><th>Currency</th><th>Status</th></tr></thead>
+              <tbody>
+                {loading ? <tr><td colSpan={7} className="text-center py-8 text-gray-400">Loading...</td></tr>
+                : (filtered as ExpenseClaim[]).length === 0 ? <tr><td colSpan={7}><EmptyState title="No expense claims" description="No expense claims found." actionLabel="New Claim" onAction={() => { setExpenseForm({ title: '', description: '', employee_id: '', total_amount: '', currency: 'SAR', project_id: '' }); setShowExpenseForm(true); }} /></td></tr>
+                : (filtered as ExpenseClaim[]).slice((page - 1) * pageSize, page * pageSize).map(e => (
+                    <tr key={e.id}>
+                      <td className="font-mono text-xs">{e.claim_no}</td>
+                      <td className="text-sm">{e.title}</td>
+                      <td className="text-xs">{(e as any).project?.project_code || '-'}</td>
+                      <td className="text-sm">{e.employee_id || '-'}</td>
+                      <td className="font-mono text-xs">{Number(e.total_amount || 0).toLocaleString()}</td>
+                      <td className="text-sm">{e.currency}</td>
+                      <td><span className={`badge capitalize ${e.status === 'approved' ? 'badge-success' : e.status === 'rejected' ? 'badge-danger' : e.status === 'paid' ? 'badge-success' : 'badge-warning'}`}>{e.status}</span></td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={page} pageSize={pageSize} total={(filtered as ExpenseClaim[]).length} onChange={setPage} />
+        </div>
+      )}
+
       {showForm && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowForm(false)}>
           <div className="rounded-xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: 'var(--color-surface)' }} onClick={e => e.stopPropagation()}>
@@ -431,6 +578,44 @@ export default function FinancePage() {
             <div className="flex gap-2 mt-4">
               <button className="btn-primary btn-sm" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
               <button className="btn-secondary btn-sm" onClick={() => setShowForm(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showExpenseForm && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowExpenseForm(false)}>
+          <div className="rounded-xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" style={{ backgroundColor: 'var(--color-surface)' }} onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-4">New Expense Claim</h3>
+            {formError && <div className="mb-4 p-3 rounded-lg text-sm" style={{backgroundColor: 'color-mix(in srgb, var(--color-danger) 10%, transparent)', color: 'var(--color-danger)'}}>{formError}</div>}
+            <div className="space-y-4">
+              <div><label className="label">Title *</label>
+                <input className="input" value={expenseForm.title} onChange={e => setExpenseForm({ ...expenseForm, title: e.target.value })} />
+              </div>
+              <div><label className="label">Description</label>
+                <textarea className="input" rows={2} value={expenseForm.description} onChange={e => setExpenseForm({ ...expenseForm, description: e.target.value })} />
+              </div>
+              <div><label className="label">Employee ID</label>
+                <input className="input" value={expenseForm.employee_id} onChange={e => setExpenseForm({ ...expenseForm, employee_id: e.target.value })} />
+              </div>
+              <div><label className="label">Project</label>
+                <select className="input" value={expenseForm.project_id} onChange={e => setExpenseForm({ ...expenseForm, project_id: e.target.value })}>
+                  <option value="">No project</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.name_en}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="label">Amount *</label><input type="number" className="input" value={expenseForm.total_amount} onChange={e => setExpenseForm({ ...expenseForm, total_amount: e.target.value })} /></div>
+                <div><label className="label">Currency</label>
+                  <select className="input" value={expenseForm.currency} onChange={e => setExpenseForm({ ...expenseForm, currency: e.target.value })}>
+                    {['SAR','USD','EUR','GBP'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button className="btn-primary btn-sm" onClick={saveExpenseClaim} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+              <button className="btn-secondary btn-sm" onClick={() => setShowExpenseForm(false)}>Cancel</button>
             </div>
           </div>
         </div>

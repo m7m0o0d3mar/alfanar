@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react';
 import { kpiApi, modulesApi } from '../../services/api';
 import type { KpiDefinition, Module } from '../../types';
 import { useT } from '../../hooks/useTranslation';
-import { Plus, Edit3, Trash2, BarChart3 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { Plus, Trash2, BarChart3 } from 'lucide-react';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
 const FORMULA_TYPES = ['count', 'sum', 'ratio', 'avg_duration', 'custom'];
 
 export default function KpisTab() {
   const t = useT();
+  const { hasPermission } = useAuth();
   const [modules, setModules] = useState<Module[]>([]);
   const [selectedModule, setSelectedModule] = useState('');
   const [kpis, setKpis] = useState<KpiDefinition[]>([]);
@@ -24,10 +26,12 @@ export default function KpisTab() {
   }, [selectedModule]);
 
   async function save() {
-    await kpiApi.upsert({ ...edit, module_code: selectedModule });
-    setShowForm(false);
-    setEdit({});
-    setKpis(await kpiApi.list(selectedModule));
+    try {
+      await kpiApi.upsert({ ...edit, module_code: selectedModule });
+      setShowForm(false);
+      setEdit({});
+      setKpis(await kpiApi.list(selectedModule));
+    } catch (err: unknown) { console.error('Failed to save KPI:', err); }
   }
 
   async function remove(id: string) {
@@ -41,12 +45,12 @@ export default function KpisTab() {
         <div className="flex gap-2">
           <select className="input w-auto" value={selectedModule}
             onChange={(e) => setSelectedModule(e.target.value)}>
-            <option value="">-- Select Module --</option>
+            <option value="">{t('designer.select_module')}</option>
             {modules.map((m) => (
               <option key={m.code} value={m.code}>{m.name_en}</option>
             ))}
           </select>
-          {selectedModule && (
+          {selectedModule && hasPermission('settings', 'create') && (
             <button className="btn-primary btn-sm" onClick={() => { setEdit({}); setShowForm(true); }}>
               <Plus size={16} /> {t('designer.add_kpi')}
             </button>
@@ -93,7 +97,7 @@ export default function KpisTab() {
             </div>
           </div>
           <div className="flex gap-2 mt-4">
-            <button className="btn-primary btn-sm" onClick={save}>{t('common.save')}</button>
+            {hasPermission('settings', 'edit') && <button className="btn-primary btn-sm" onClick={save}>{t('common.save')}</button>}
             <button className="btn-secondary btn-sm" onClick={() => setShowForm(false)}>{t('common.cancel')}</button>
           </div>
         </div>
@@ -101,28 +105,30 @@ export default function KpisTab() {
 
       <div className="grid-page">
         {!selectedModule ? (
-          <p className="text-sm text-gray-400 col-span-full text-center py-8">Select a module above</p>
+          <p className="text-sm col-span-full text-center py-8" style={{ color: 'var(--color-text-muted)' }}>{t('designer.select_module')}</p>
         ) : kpis.length === 0 ? (
-          <p className="text-sm text-gray-400 col-span-full text-center py-8">{t('common.no_data')}</p>
+          <p className="text-sm col-span-full text-center py-8" style={{ color: 'var(--color-text-muted)' }}>{t('common.no_data')}</p>
         ) : kpis.map((k) => (
           <div key={k.id} className="card">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2">
                 <BarChart3 size={20} className="text-primary" />
                 <div>
-                  <p className="font-medium text-gray-900">{k.name_en}</p>
-                  <p className="text-xs text-gray-500">{k.name_ar}</p>
+                  <p className="font-medium" style={{ color: 'var(--color-text)' }}>{k.name_en}</p>
+                  <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{k.name_ar}</p>
                 </div>
               </div>
+              {hasPermission('settings', 'delete') && (
               <button className="btn-sm btn-danger" onClick={() => remove(k.id)}>
                 <Trash2 size={12} />
               </button>
+              )}
             </div>
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              <span className="badge bg-gray-100 text-gray-600">{k.formula_type}</span>
-              <span className="badge bg-blue-100 text-blue-700">{k.unit}</span>
+              <span className="badge" style={{ backgroundColor: 'color-mix(in srgb, var(--color-primary) 15%, transparent)', color: 'var(--color-primary)' }}>{k.formula_type}</span>
+              <span className="badge" style={{ backgroundColor: 'color-mix(in srgb, #3b82f6 15%, transparent)', color: '#3b82f6' }}>{k.unit}</span>
               {k.target_value != null && (
-                <span className="badge bg-green-100 text-green-700">Target: {k.target_value}</span>
+                <span className="badge" style={{ backgroundColor: 'color-mix(in srgb, #22c55e 15%, transparent)', color: '#22c55e' }}>{t('designer.target_value')}: {k.target_value}</span>
               )}
             </div>
           </div>
@@ -130,9 +136,9 @@ export default function KpisTab() {
       </div>
       {deleteId && (
         <ConfirmDialog
-          title="Delete KPI"
-          message="Delete this KPI?"
-          confirmLabel="Delete"
+          title={t('designer.delete_kpi')}
+          message={t('designer.delete_kpi_msg')}
+          confirmLabel={t('common.delete')}
           variant="danger"
           onConfirm={async () => {
             await kpiApi.remove(deleteId);

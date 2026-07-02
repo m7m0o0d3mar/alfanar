@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { useT } from '../hooks/useTranslation';
 import { supabase } from '../services/supabase';
 import { useToast } from '../context/ToastContext';
 import { exportCSV } from '../utils/csv';
 import CsvImportModal from '../components/CsvImportModal';
 import { type SyncConfig } from '../services/syncService';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Download, Upload, Edit3, Search, Eye } from 'lucide-react';
 import Pagination from '../components/Pagination';
 
@@ -49,9 +50,11 @@ const defaultForm = {
 };
 
 export default function UnitsPage() {
+  const { hasPermission } = useAuth();
   const t = useT();
   const toast = useToast();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [units, setUnits] = useState<Unit[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -69,7 +72,12 @@ export default function UnitsPage() {
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const projectParam = searchParams.get('project');
+    if (projectParam) setProjectFilter(projectParam);
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -192,9 +200,9 @@ export default function UnitsPage() {
           <button className="btn-sm btn-secondary" onClick={() => setShowImport(true)}>
             <Upload size={14} /> {t('admin.import_csv')}
           </button>
-          <button className="btn-primary btn-sm" onClick={() => { setEditing(null); setForm(defaultForm); setFormError(''); setShowForm(true); }}>
+          {hasPermission('units', 'create') && <button className="btn-primary btn-sm" onClick={() => { setEditing(null); setForm(defaultForm); setFormError(''); setShowForm(true); }}>
             <Plus size={16} /> {t('common.create')}
-          </button>
+          </button>}
         </div>
       </div>
 

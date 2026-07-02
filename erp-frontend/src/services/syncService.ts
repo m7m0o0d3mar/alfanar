@@ -57,7 +57,6 @@ export async function syncRows(
   const errors: { row: number; msg: string }[] = [];
   let success = 0;
   const fkCache = new Map<string, Map<string, string>>();
-  const batchSize = 50;
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];

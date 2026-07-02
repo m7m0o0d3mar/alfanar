@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
-import { useT } from '../hooks/useTranslation';
 import { Users, Wrench, HardHat, Briefcase, Plus } from 'lucide-react';
 import ViewToggle from '../components/ViewToggle';
+import { useAuth } from '../context/AuthContext';
 import Pagination from '../components/Pagination';
 
 type TabKey = 'people' | 'equipment' | 'contractors';
 
 interface ResourcePerson {
-  id: string; full_name_en: string; job_title: string; employee_type: string;
+  id: string; full_name_en: string; job_title: string; employee_type: string; project_id?: string;
+}
+
+interface Project {
+  id: string; project_code: string; name_en: string;
 }
 
 interface ResourceEquipment {
@@ -27,9 +31,11 @@ const tabs: { key: TabKey; label: string; icon: typeof Users }[] = [
 ];
 
 export default function ResourcesPage() {
-  const t = useT();
+  const { hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState<TabKey>('people');
   const [people, setPeople] = useState<ResourcePerson[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [filterProject, setFilterProject] = useState('');
   const [equipment, setEquipment] = useState<ResourceEquipment[]>([]);
   const [contractors, setContractors] = useState<ResourceContractor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,18 +47,21 @@ export default function ResourcesPage() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      supabase.from('employees').select('id, full_name_en, job_title, employee_type').limit(50).then(r => ({ data: r.data || [], error: r.error })),
+      supabase.from('employees').select('id, full_name_en, job_title, employee_type, project_id').limit(50).then(r => ({ data: r.data || [], error: r.error })),
       supabase.from('equipment').select('id, name, type, status').limit(50).then(r => ({ data: r.data || [], error: r.error })),
       supabase.from('contractors').select('*, companies(name_en)').limit(50).then(r => ({ data: r.data || [], error: r.error })),
-    ]).then(([empRes, eqRes, conRes]) => {
+      supabase.from('projects').select('id, project_code, name_en').eq('is_active', true).order('project_code').then(r => ({ data: r.data || [], error: r.error })),
+    ]).then(([empRes, eqRes, conRes, projRes]) => {
       if (!empRes.error && empRes.data) setPeople(empRes.data);
       if (!eqRes.error && eqRes.data) setEquipment(eqRes.data);
       if (!conRes.error && conRes.data) setContractors(conRes.data);
+      if (!projRes.error && projRes.data) setProjects(projRes.data);
       setLoading(false);
     });
   }, []);
 
-  const ActiveIcon = tabs.find((t) => t.key === activeTab)!.icon;
+  const projectMap = Object.fromEntries(projects.map(p => [p.id, p.project_code]));
+  const filteredPeople = filterProject ? people.filter(p => p.project_id === filterProject) : people;
 
   return (
     <div className="page-enter space-y-4">
@@ -68,10 +77,10 @@ export default function ResourcesPage() {
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle value={view} onChange={setView} views={['table', 'kanban']} />
-          <button className="btn btn-primary btn-sm">
+          {hasPermission('resources', 'create') && <button className="btn btn-primary btn-sm">
             <Plus size={14} />
             Add {tabs.find((t) => t.key === activeTab)?.label}
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -94,23 +103,30 @@ export default function ResourcesPage() {
         </div>
       ) : activeTab === 'people' ? (
         <>
+        <div className="flex items-center gap-2 mb-3">
+          <select className="select text-sm" style={{ width: '160px' }} value={filterProject} onChange={e => setFilterProject(e.target.value)}>
+            <option value="">All Projects</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.project_code}</option>)}
+          </select>
+        </div>
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Name</th><th>Role</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Role</th><th>Project</th><th>Actions</th></tr></thead>
             <tbody>
-              {people.length === 0 ? (
-                <tr><td colSpan={3} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>No people assigned yet</td></tr>
-              ) : people.slice((page - 1) * pageSize, page * pageSize).map((p) => (
+              {filteredPeople.length === 0 ? (
+                <tr><td colSpan={4} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>No people assigned yet</td></tr>
+              ) : filteredPeople.slice((page - 1) * pageSize, page * pageSize).map((p) => (
                 <tr key={p.id}>
                   <td className="font-medium">{p.full_name_en}</td>
                   <td><span className="badge badge-neutral">{p.job_title || p.employee_type || '—'}</span></td>
+                  <td className="text-xs">{projectMap[p.project_id || ''] || '-'}</td>
                   <td><button className="btn btn-xs btn-ghost">View</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <Pagination page={page} pageSize={pageSize} total={people.length} onChange={setPage} />
+        <Pagination page={page} pageSize={pageSize} total={filteredPeople.length} onChange={setPage} />
         </>
       ) : activeTab === 'equipment' ? (
         <>

@@ -13,6 +13,13 @@ import {
   canDeleteRecord,
   canTransitionAfterConflict,
   budgetRemaining,
+  supplierScore,
+  evalRating,
+  evaluateContractExpiry,
+  processExpenseClaim,
+  getCurrencyConversion,
+  getTaxAmount,
+  calculateOvertimePay,
 } from '../utils/business-rules';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,10 +73,10 @@ describe('Multi-role access control', () => {
   });
 
   it('restricts QC to work_request entity only', () => {
-    expect(canPerform('qc', 'work_request', 'create')).toBe(true);
-    expect(canPerform('qc', 'work_request', 'approve')).toBe(true);
-    expect(canPerform('qc', 'purchase_order', 'create')).toBe(false);
-    expect(canPerform('qc', 'invoice', 'create')).toBe(false);
+    expect(canPerform('quality', 'work_request', 'create')).toBe(true);
+    expect(canPerform('quality', 'work_request', 'approve')).toBe(true);
+    expect(canPerform('quality', 'purchase_order', 'create')).toBe(false);
+    expect(canPerform('quality', 'invoice', 'create')).toBe(false);
   });
 
   it('restricts accountant to invoice entity', () => {
@@ -100,7 +107,7 @@ describe('Multi-role access control', () => {
   });
 
   it('allows all roles to view and export', () => {
-    for (const role of ['admin', 'project_manager', 'engineer', 'qc', 'consultant', 'accountant', 'procurement', 'sales', 'client'] as const) {
+    for (const role of ['admin', 'project_manager', 'engineer', 'quality', 'consultant', 'accountant', 'procurement', 'sales', 'client'] as const) {
       expect(canPerform(role, 'work_request', 'view')).toBe(true);
       expect(canPerform(role, 'work_request', 'export')).toBe(true);
     }
@@ -201,7 +208,7 @@ describe('Permissions by role, project, and branch', () => {
   });
 
   it('allows QC to import data', () => {
-    expect(canPerform('qc', 'work_request', 'import')).toBe(true);
+    expect(canPerform('quality', 'work_request', 'import')).toBe(true);
   });
 });
 
@@ -462,5 +469,106 @@ describe('Conflict testing', () => {
       expect(isValidTransition('purchase_order', 'closed', 'approved')).toBe(false);
       expect(isValidTransition('invoice', 'closed', 'approved')).toBe(false);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. PROCUREMENT ENHANCEMENT SCENARIOS
+// ─────────────────────────────────────────────────────────────────────────────
+describe('Procurement Enhancement (Supplier Evaluation)', () => {
+  it('computes overall score from 5 dimensions', () => {
+    expect(supplierScore({ quality: 4, delivery: 5, price: 3, responsiveness: 4, compliance: 5 })).toBe(4.2);
+  });
+
+  it('handles partial scores (missing dimensions)', () => {
+    expect(supplierScore({ quality: 5, delivery: 4 })).toBe(4.5);
+  });
+
+  it('returns 0 when no scores provided', () => {
+    expect(supplierScore({})).toBe(0);
+  });
+
+  it('maps score to excellent rating (>=4.5)', () => {
+    expect(evalRating(4.5)).toBe('excellent');
+    expect(evalRating(5.0)).toBe('excellent');
+  });
+
+  it('maps score to good rating (3.5-4.4)', () => {
+    expect(evalRating(3.5)).toBe('good');
+    expect(evalRating(4.4)).toBe('good');
+  });
+
+  it('maps score to average rating (2.5-3.4)', () => {
+    expect(evalRating(2.5)).toBe('average');
+  });
+
+  it('maps score to poor rating (1.5-2.4)', () => {
+    expect(evalRating(1.5)).toBe('poor');
+  });
+
+  it('maps score to critical rating (<1.5)', () => {
+    expect(evalRating(1.4)).toBe('critical');
+    expect(evalRating(0)).toBe('critical');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. HR ENHANCEMENT SCENARIOS
+// ─────────────────────────────────────────────────────────────────────────────
+describe('HR Enhancement (Contracts, Overtime)', () => {
+  it('calculates overtime pay with default 1.5x multiplier', () => {
+    expect(calculateOvertimePay(50, 10)).toBe(750);
+  });
+
+  it('calculates overtime pay with custom multiplier', () => {
+    expect(calculateOvertimePay(50, 10, 2)).toBe(1000);
+  });
+
+  it('evaluates active contract as active', () => {
+    const future = new Date();
+    future.setFullYear(future.getFullYear() + 1);
+    expect(evaluateContractExpiry({ startDate: new Date(), endDate: future }).status).toBe('active');
+  });
+
+  it('evaluates expired contract', () => {
+    const past = new Date('2020-01-01');
+    expect(evaluateContractExpiry({ startDate: new Date('2019-01-01'), endDate: past }).status).toBe('expired');
+  });
+
+  it('evaluates indefinite contract', () => {
+    expect(evaluateContractExpiry({ startDate: new Date() }).status).toBe('indefinite');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. FINANCE ENHANCEMENT SCENARIOS
+// ─────────────────────────────────────────────────────────────────────────────
+describe('Finance Enhancement (Tax, Currency, Expenses)', () => {
+  it('calculates VAT correctly', () => {
+    expect(getTaxAmount(1000, 15)).toBe(150);
+    expect(getTaxAmount(2500, 5)).toBe(125);
+  });
+
+  it('converts currency at given rate', () => {
+    expect(getCurrencyConversion(1000, 3.75)).toBe(3750);
+    expect(getCurrencyConversion(500, 0.27)).toBe(135);
+  });
+
+  it('processes expense claim totals', () => {
+    const result = processExpenseClaim([
+      { amount: 500 },
+      { amount: 300, approvedAmount: 250 },
+      { amount: 200 },
+    ]);
+    expect(result.totalSubmitted).toBe(1000);
+    expect(result.totalApproved).toBe(950);
+    expect(result.itemCount).toBe(3);
+  });
+
+  it('handles empty expense claim', () => {
+    const result = processExpenseClaim([]);
+    expect(result.totalSubmitted).toBe(0);
+    expect(result.totalApproved).toBe(0);
+    expect(result.itemCount).toBe(0);
   });
 });

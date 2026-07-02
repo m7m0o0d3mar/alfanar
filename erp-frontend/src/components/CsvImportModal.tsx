@@ -4,8 +4,6 @@ import { parseCSV, exportCSV } from '../utils/csv';
 import { syncRows, type SyncConfig, type SyncResult } from '../services/syncService';
 import { Upload, Download, AlertCircle, CheckCircle, X, Loader2 } from 'lucide-react';
 
-interface ColumnDef { key: string; label: string; required?: boolean; type?: 'string' | 'number' | 'date'; }
-
 interface Props {
   moduleName: string;
   config: SyncConfig;
@@ -22,7 +20,6 @@ export default function CsvImportModal({ moduleName, config, onClose }: Props) {
   const [result, setResult] = useState<SyncResult | null>(null);
 
   function downloadTemplate() {
-    const headers = config.columns.map((c) => c.label);
     const example: Record<string, string> = {};
     config.columns.forEach((c) => { example[c.label] = ''; });
     if (config.columns.length > 0) example[config.columns[0].label] = `Example ${config.columns[0].label}`;
@@ -44,7 +41,6 @@ export default function CsvImportModal({ moduleName, config, onClose }: Props) {
 
   function validate(rows: Record<string, string>[]) {
     const errors: string[] = [];
-    const colKeys = config.columns.map((c) => c.label);
     if (rows.length === 0) { errors.push('File is empty'); setValidationErrors(errors); return; }
     const fileCols = Object.keys(rows[0]);
     const missing = config.columns.filter((c) => c.required && !fileCols.includes(c.label));

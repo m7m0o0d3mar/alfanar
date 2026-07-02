@@ -45,7 +45,7 @@ export default function WIRDetailPage() {
   const navigate = useNavigate();
   const t = useT();
   const toast = useToast();
-  const { user: authUser } = useAuth();
+  const { user: authUser, hasPermission } = useAuth();
   const [wir, setWir] = useState<WorkRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -137,10 +137,6 @@ export default function WIRDetailPage() {
     if (wir.status === 'pending_consultant' && currentUserRole === 'consultant') return true;
     if (wir.status === 'pending_pm' && currentUserRole === 'project_manager') return true;
     return false;
-  }
-
-  function canUserReject(): boolean {
-    return canUserApprove();
   }
 
   function canSubmit(): boolean {
@@ -334,12 +330,12 @@ export default function WIRDetailPage() {
           <ArrowLeft size={16} /> {t('common.back')}
         </button>
         <div className="flex gap-2 flex-wrap">
-          {canSubmit() && (
+          {canSubmit() && hasPermission('execution', 'edit') && (
             <button className="btn-primary btn-sm" onClick={submitWir} disabled={saving}>
               <Send size={14} /> Submit for Review
             </button>
           )}
-          {canResubmit() && (
+          {canResubmit() && hasPermission('execution', 'edit') && (
             <button className="btn-primary btn-sm" onClick={resubmitWir} disabled={saving}>
               <RotateCcw size={14} /> Resubmit
             </button>
@@ -476,7 +472,7 @@ export default function WIRDetailPage() {
           <div><label className="label">Description</label><textarea className="input" rows={3} value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
           {wir.is_ncr && <div><label className="label">NCR Reason</label><textarea className="input" rows={2} value={form.ncr_reason || ''} onChange={(e) => setForm({ ...form, ncr_reason: e.target.value })} /></div>}
           <div className="flex gap-2">
-            <button className="btn-primary btn-sm" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+            {hasPermission('execution', 'edit') && <button className="btn-primary btn-sm" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>}
             <button className="btn-secondary btn-sm" onClick={() => setEditing(false)}>Cancel</button>
           </div>
         </div>

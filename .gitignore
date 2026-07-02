@@ -16,3 +16,14 @@ Thumbs.db
 
 ## Logs
 supabase/.temp/
+*.log
+*.err
+
+## Test artifacts
+erp-frontend/test-results/
+**/test-results/
+**/tests/reports/
+**/__screenshots__/
+
+## Temp files
+tmp_*.sql

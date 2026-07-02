@@ -31,7 +31,7 @@ jobs:
 
       - name: Deploy to Cloudflare Pages
         working-directory: erp-frontend
-        run: npx wrangler pages deploy dist --project-name=alfanar --branch=main --commit-dirty=true
+        run: npx wrangler pages deploy dist --project-name=alfanar-erp --branch=main --commit-dirty=true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: c95464a96565cf19eac3c7edab9a4b53

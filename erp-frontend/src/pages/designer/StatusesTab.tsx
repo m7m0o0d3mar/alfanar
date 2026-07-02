@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react';
 import { statusesApi, modulesApi } from '../../services/api';
 import type { StatusDefinition, Module } from '../../types';
 import { useT } from '../../hooks/useTranslation';
+import { useAuth } from '../../context/AuthContext';
 import { Plus, Edit3, Trash2 } from 'lucide-react';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
 export default function StatusesTab() {
   const t = useT();
+  const { hasPermission } = useAuth();
   const [modules, setModules] = useState<Module[]>([]);
   const [selectedModule, setSelectedModule] = useState('');
   const [statuses, setStatuses] = useState<StatusDefinition[]>([]);
@@ -24,11 +26,15 @@ export default function StatusesTab() {
   }, [selectedModule]);
 
   async function save() {
-    await statusesApi.upsert({ ...edit, module_code: selectedModule });
-    setShowForm(false);
-    setEdit({});
-    const list = await statusesApi.list(selectedModule);
-    setStatuses(list);
+    try {
+      await statusesApi.upsert({ ...edit, module_code: selectedModule });
+      setShowForm(false);
+      setEdit({});
+      const list = await statusesApi.list(selectedModule);
+      setStatuses(list);
+    } catch (err: unknown) {
+      console.error('Failed to save status:', err);
+    }
   }
 
   async function remove(id: string) {
@@ -40,14 +46,14 @@ export default function StatusesTab() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">{t('designer.statuses')}</h3>
         <div className="flex gap-2">
-          <select className="input w-auto" value={selectedModule}
+            <select className="input w-auto" value={selectedModule}
             onChange={(e) => setSelectedModule(e.target.value)}>
-            <option value="">-- Select Module --</option>
+            <option value="">{t('designer.select_module')}</option>
             {modules.map((m) => (
               <option key={m.code} value={m.code}>{m.name_en} ({m.code})</option>
             ))}
           </select>
-          {selectedModule && (
+          {selectedModule && hasPermission('settings', 'create') && (
             <button className="btn-primary btn-sm" onClick={() => { setEdit({}); setShowForm(true); }}>
               <Plus size={16} /> {t('designer.add_status')}
             </button>
@@ -97,7 +103,7 @@ export default function StatusesTab() {
             </label>
           </div>
           <div className="flex gap-2 mt-4">
-            <button className="btn-primary btn-sm" onClick={save}>{t('common.save')}</button>
+            {hasPermission('settings', 'edit') && <button className="btn-primary btn-sm" onClick={save}>{t('common.save')}</button>}
             <button className="btn-secondary btn-sm" onClick={() => setShowForm(false)}>{t('common.cancel')}</button>
           </div>
         </div>
@@ -107,7 +113,7 @@ export default function StatusesTab() {
         <table className="table">
           <thead>
             <tr>
-              <th>Code</th>
+              <th>{t('designer.code')}</th>
               <th>{t('designer.name_en')}</th>
               <th>{t('designer.name_ar')}</th>
               <th>{t('designer.color')}</th>
@@ -119,7 +125,7 @@ export default function StatusesTab() {
           </thead>
           <tbody>
             {!selectedModule ? (
-              <tr><td colSpan={8} className="text-center py-8 text-gray-400">Select a module above</td></tr>
+              <tr><td colSpan={8} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>{t('designer.select_module')}</td></tr>
             ) : statuses.map((s) => (
               <tr key={s.id}>
                 <td className="font-mono text-xs">{s.status_code}</td>
@@ -135,9 +141,11 @@ export default function StatusesTab() {
                   <button className="btn-sm btn-secondary" onClick={() => { setEdit(s); setShowForm(true); }}>
                     <Edit3 size={14} />
                   </button>
+                  {hasPermission('settings', 'delete') && (
                   <button className="btn-sm btn-danger" onClick={() => remove(s.id)}>
                     <Trash2 size={14} />
                   </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -146,9 +154,9 @@ export default function StatusesTab() {
       </div>
       {deleteId && (
         <ConfirmDialog
-          title="Delete Status"
-          message="Delete this status?"
-          confirmLabel="Delete"
+          title={t('designer.delete_status')}
+          message={t('designer.delete_status_msg')}
+          confirmLabel={t('common.delete')}
           variant="danger"
           onConfirm={async () => {
             await statusesApi.remove(deleteId);

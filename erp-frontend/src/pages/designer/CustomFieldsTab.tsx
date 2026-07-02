@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { customFieldsApi, modulesApi } from '../../services/api';
 import type { CustomField, Module } from '../../types';
 import { useT } from '../../hooks/useTranslation';
+import { useAuth } from '../../context/AuthContext';
 import { Plus, Edit3, Trash2 } from 'lucide-react';
 import ConfirmDialog from '../../components/ConfirmDialog';
 
@@ -9,6 +10,7 @@ const FIELD_TYPES = ['text', 'number', 'date', 'enum', 'lookup', 'boolean', 'tex
 
 export default function CustomFieldsTab() {
   const t = useT();
+  const { hasPermission } = useAuth();
   const [modules, setModules] = useState<Module[]>([]);
   const [selectedModule, setSelectedModule] = useState('');
   const [fields, setFields] = useState<CustomField[]>([]);
@@ -24,10 +26,12 @@ export default function CustomFieldsTab() {
   }, [selectedModule]);
 
   async function save() {
-    await customFieldsApi.upsert({ ...edit, module_code: selectedModule });
-    setShowForm(false);
-    setEdit({ field_type: 'text' });
-    setFields(await customFieldsApi.list(selectedModule));
+    try {
+      await customFieldsApi.upsert({ ...edit, module_code: selectedModule });
+      setShowForm(false);
+      setEdit({ field_type: 'text' });
+      setFields(await customFieldsApi.list(selectedModule));
+    } catch (err: unknown) { console.error('Failed to save custom field:', err); }
   }
 
   async function remove(id: string) {
@@ -41,12 +45,12 @@ export default function CustomFieldsTab() {
         <div className="flex gap-2">
           <select className="input w-auto" value={selectedModule}
             onChange={(e) => setSelectedModule(e.target.value)}>
-            <option value="">-- Select Module --</option>
+            <option value="">{t('designer.select_module')}</option>
             {modules.map((m) => (
               <option key={m.code} value={m.code}>{m.name_en}</option>
             ))}
           </select>
-          {selectedModule && (
+          {selectedModule && hasPermission('settings', 'create') && (
             <button className="btn-primary btn-sm" onClick={() => { setEdit({ field_type: 'text' }); setShowForm(true); }}>
               <Plus size={16} /> {t('designer.add_field')}
             </button>
@@ -95,7 +99,7 @@ export default function CustomFieldsTab() {
             </label>
           </div>
           <div className="flex gap-2 mt-4">
-            <button className="btn-primary btn-sm" onClick={save}>{t('common.save')}</button>
+            {hasPermission('settings', 'edit') && <button className="btn-primary btn-sm" onClick={save}>{t('common.save')}</button>}
             <button className="btn-secondary btn-sm" onClick={() => setShowForm(false)}>{t('common.cancel')}</button>
           </div>
         </div>
@@ -116,24 +120,26 @@ export default function CustomFieldsTab() {
           </thead>
           <tbody>
             {!selectedModule ? (
-              <tr><td colSpan={7} className="text-center py-8 text-gray-400">Select a module above</td></tr>
+              <tr><td colSpan={7} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>{t('designer.select_module')}</td></tr>
             ) : fields.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-8 text-gray-400">{t('common.no_data')}</td></tr>
+              <tr><td colSpan={7} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>{t('common.no_data')}</td></tr>
             ) : fields.map((f) => (
               <tr key={f.id}>
                 <td className="font-mono text-xs">{f.name}</td>
                 <td>{f.label_en}</td>
                 <td>{f.label_ar}</td>
-                <td><span className="badge bg-purple-100 text-purple-700">{f.field_type}</span></td>
+                <td><span className="badge" style={{ backgroundColor: 'color-mix(in srgb, #8b5cf6 15%, transparent)', color: '#8b5cf6' }}>{f.field_type}</span></td>
                 <td>{f.is_required ? '✓' : '-'}</td>
                 <td>{f.order}</td>
                 <td className="flex gap-1">
                   <button className="btn-sm btn-secondary" onClick={() => { setEdit(f); setShowForm(true); }}>
                     <Edit3 size={14} />
                   </button>
+                  {hasPermission('settings', 'delete') && (
                   <button className="btn-sm btn-danger" onClick={() => remove(f.id)}>
                     <Trash2 size={14} />
                   </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -142,9 +148,9 @@ export default function CustomFieldsTab() {
       </div>
       {deleteId && (
         <ConfirmDialog
-          title="Delete Custom Field"
-          message="Delete this custom field?"
-          confirmLabel="Delete"
+          title={t('designer.delete_field')}
+          message={t('designer.delete_field_msg')}
+          confirmLabel={t('common.delete')}
           variant="danger"
           onConfirm={async () => {
             await customFieldsApi.remove(deleteId);

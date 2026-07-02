@@ -9,8 +9,8 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { exportCSV } from '../utils/csv';
 import { formatDate } from '../utils/date';
 import CsvImportModal from '../components/CsvImportModal';
-import { type SyncConfig } from '../services/syncService';
-import { Plus, Download, Upload, Search, Edit3, Trash2 } from 'lucide-react';
+import { Plus, Download, Upload, Search, Edit3, Trash2, CheckCircle, Eye } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface Warehouse { id: string; code: string; name_en: string; name_ar?: string; location?: string; project_id?: string; is_active: boolean; }
 interface Material { id: string; code: string; name_en: string; name_ar?: string; category_id?: string; unit: string; default_price: number; is_active: boolean; }
@@ -18,14 +18,19 @@ interface MaterialCategory { id: string; code: string; name_en: string; name_ar?
 interface InventoryItem { material_id: string; warehouse_id: string; material_code: string; material_name: string; unit: string; warehouse_code: string; warehouse_name: string; net_quantity: number; avg_unit_price: number; default_price: number; batch_count: number; }
 interface StockMovement { id: string; movement_no: string; movement_type: string; warehouse_id: string; material_id: string; quantity: number; unit_price?: number; batch_no?: string; notes?: string; created_at: string; materials?: { code: string; name_en: string }; warehouses?: { code: string; name_en: string }; }
 interface PR { id: string; pr_no: string; project_id?: string; status: string; notes?: string; created_at: string; }
+interface WarehouseBin { id: string; warehouse_id: string; code: string; name_en?: string; name_ar?: string; zone?: string; max_capacity?: number; capacity_unit?: string; is_active?: boolean; warehouse?: { name_en: string }; }
+interface StockAdjustment { id: string; adjustment_no: string; warehouse_id: string; adjustment_type: string; status: string; notes?: string; created_at: string; warehouse_name?: string; }
+interface MatRequest { id: string; request_no: string; project_id?: string; task_id?: string; warehouse_id?: string; request_date: string; required_date?: string; status: string; priority: string; notes?: string; created_at: string; project?: { project_code: string; name_en: string }; }
+interface MatRequestItem { id: string; request_id: string; material_id: string; quantity_requested: number; quantity_issued: number; unit?: string; materials?: { code: string; name_en: string }; }
 
-type Tab = 'warehouses' | 'materials' | 'inventory' | 'movements' | 'requisitions';
+type Tab = 'warehouses' | 'materials' | 'inventory' | 'movements' | 'requisitions' | 'bins' | 'adjustments' | 'material_requests';
 
-const emptyItem = { code: '', name_en: '', name_ar: '', location: '', project_id: '', unit: 'pcs', category_id: '', default_price: 0, is_active: true, warehouse_id: '', material_id: '', quantity: 0, min_quantity: 0, unit_price: 0, batch_no: '', expiry_date: '', movement_type: 'received', notes: '', pr_no: '', status: 'draft' };
+const emptyItem = { code: '', name_en: '', name_ar: '', location: '', project_id: '', unit: 'pcs', category_id: '', default_price: 0, is_active: true, warehouse_id: '', material_id: '', quantity: 0, min_quantity: 0, unit_price: 0, batch_no: '', expiry_date: '', movement_type: 'received', notes: '', pr_no: '', status: 'draft', adjustment_type: 'surplus', priority: 'normal', zone: '', max_capacity: 0, capacity_unit: 'unit', request_no: '', request_date: '', required_date: '', task_id: '' };
 
 export default function WarehousePage() {
   const t = useT();
   const toast = useToast();
+  const { hasPermission } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('warehouses');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,17 +49,24 @@ export default function WarehousePage() {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [requisitions, setRequisitions] = useState<PR[]>([]);
   const [projects, setProjects] = useState<{ id: string; name_en: string; project_code: string }[]>([]);
+  const [bins, setBins] = useState<WarehouseBin[]>([]);
+  const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
+  const [matRequests, setMatRequests] = useState<MatRequest[]>([]);
+  const [matRequestItems, setMatRequestItems] = useState<Record<string, MatRequestItem[]>>({});
   const [form, setForm] = useState(emptyItem);
+  const [mrFormItems, setMrFormItems] = useState<{ material_id: string; quantity_requested: number; unit: string }[]>([]);
+  const [viewingMrId, setViewingMrId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(25);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setPage(1); load(); }, [activeTab]);
   useEffect(() => { setPage(1); }, [debouncedSearch]);
 
   async function load() {
     setLoading(true);
     try {
-      const [wRes, mRes, cRes, iRes, movRes, prRes, pRes] = await Promise.all([
+      const [wRes, mRes, cRes, iRes, movRes, prRes, pRes, bRes, adjRes, mrRes, mriRes] = await Promise.all([
         supabase.from('warehouses').select('*').order('name_en'),
         supabase.from('materials').select('*').order('name_en'),
         supabase.from('material_categories').select('*').order('name_en'),
@@ -85,7 +97,6 @@ export default function WarehousePage() {
             d1 = r.data;
           } catch (err) {
             console.error('Stock movements with joins failed:', err);
-            d1 = null;
           }
           if (d1 && d1.length > 0) return { data: d1, error: null };
           try {
@@ -98,6 +109,10 @@ export default function WarehousePage() {
         })() : Promise.resolve({ data: [] }),
         activeTab === 'requisitions' ? supabase.from('purchase_requisitions').select('*').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
         supabase.from('projects').select('id, name_en, project_code').eq('is_active', true).order('name_en'),
+        activeTab === 'bins' ? supabase.from('warehouse_bins').select('*, warehouse:warehouses(name_en)').order('code') : Promise.resolve({ data: [] }),
+        activeTab === 'adjustments' ? supabase.from('stock_adjustments').select('*').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
+        activeTab === 'material_requests' ? supabase.from('material_requests').select('*, project:projects(project_code, name_en)').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
+        activeTab === 'material_requests' ? supabase.from('material_request_items').select('*, materials(code, name_en)') : Promise.resolve({ data: [] }),
       ]);
       setWarehouses(wRes.data as Warehouse[] || []);
       setMaterials(mRes.data as Material[] || []);
@@ -106,6 +121,16 @@ export default function WarehousePage() {
       setMovements(movRes.data as StockMovement[] || []);
       setRequisitions(prRes.data as PR[] || []);
       setProjects(pRes.data as { id: string; name_en: string; project_code: string }[] || []);
+      setBins(bRes.data as WarehouseBin[] || []);
+      setAdjustments(adjRes.data as StockAdjustment[] || []);
+      setMatRequests(mrRes.data as MatRequest[] || []);
+      const mriData = mriRes.data as MatRequestItem[] || [];
+      const grouped: Record<string, MatRequestItem[]> = {};
+      for (const item of mriData) {
+        if (!grouped[item.request_id]) grouped[item.request_id] = [];
+        grouped[item.request_id].push(item);
+      }
+      setMatRequestItems(grouped);
     } catch (err) {
       console.error('Failed to load warehouse data:', err);
       toast.error('Failed to load data.');
@@ -146,6 +171,30 @@ export default function WarehousePage() {
       } else if (activeTab === 'requisitions') {
         table = 'purchase_requisitions';
         payload = { pr_no: form.code, project_id: form.project_id || null, status: form.status, notes: form.notes || null };
+      } else if (activeTab === 'bins') {
+        table = 'warehouse_bins';
+        payload = { code: form.code, name_en: form.name_en || null, name_ar: form.name_ar || null, zone: form.zone || null, warehouse_id: form.warehouse_id, max_capacity: form.max_capacity || null, capacity_unit: form.capacity_unit || null, is_active: form.is_active };
+        if (editId) payload.id = editId;
+      } else if (activeTab === 'adjustments') {
+        table = 'stock_adjustments';
+        payload = { adjustment_no: form.code, warehouse_id: form.warehouse_id, adjustment_type: form.adjustment_type, status: form.status, notes: form.notes || null };
+      } else if (activeTab === 'material_requests') {
+        table = 'material_requests';
+        payload = { request_no: form.code, project_id: form.project_id || null, task_id: form.task_id || null, warehouse_id: form.warehouse_id || null, request_date: form.request_date || new Date().toISOString().slice(0, 10), required_date: form.required_date || null, status: form.status, priority: form.priority, notes: form.notes || null };
+        if (!editId) {
+          const { data: newMr, error: mrErr } = await supabase.from('material_requests').insert(payload).select('id').single();
+          if (mrErr) throw mrErr;
+          if (mrFormItems.length > 0 && newMr) {
+            const { error: liErr } = await supabase.from('material_request_items').insert(
+              mrFormItems.map(item => ({ request_id: newMr.id, material_id: item.material_id, quantity_requested: item.quantity_requested, unit: item.unit || null }))
+            );
+            if (liErr) throw liErr;
+          }
+          toast.success('Material Request created');
+          setShowForm(false); setEditId(null); setForm({ ...emptyItem }); setMrFormItems([]); load();
+          setSaving(false);
+          return;
+        }
       } else {
         setFormError('Invalid tab');
         setSaving(false);
@@ -169,9 +218,26 @@ export default function WarehousePage() {
     } finally { setSaving(false); }
   }
 
+  async function issueMaterialRequest(mr: MatRequest) {
+    try {
+      // Fetch MR items and set quantity_issued = quantity_requested (auto full issue)
+      const { data: items } = await supabase.from('material_request_items').select('id, quantity_requested').eq('request_id', mr.id);
+      if (items && items.length > 0) {
+        const updates = items.map(i => supabase.from('material_request_items').update({ quantity_issued: i.quantity_requested } as any).eq('id', i.id));
+        await Promise.all(updates);
+      }
+      const { error } = await supabase.from('material_requests').update({ status: 'issued' }).eq('id', mr.id);
+      if (error) throw error;
+      toast.success(`MR "${mr.request_no}" issued — stock movements created`);
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to issue MR');
+    }
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return;
-    const tableMap: Record<string, string> = { warehouses: 'warehouses', materials: 'materials', inventory: 'inventory', movements: 'stock_movements', requisitions: 'purchase_requisitions' };
+    const tableMap: Record<string, string> = { warehouses: 'warehouses', materials: 'materials', inventory: 'inventory', movements: 'stock_movements', requisitions: 'purchase_requisitions', bins: 'warehouse_bins', adjustments: 'stock_adjustments', material_requests: 'material_requests' };
     const table = tableMap[activeTab as string] || '';
     if (!table) return;
     try {
@@ -188,7 +254,7 @@ export default function WarehousePage() {
     setFormError('');
     setEditId(item.id);
     setForm({
-      code: item.code || item.movement_no || item.pr_no || '',
+      code: item.code || item.movement_no || item.pr_no || item.adjustment_no || item.request_no || '',
       name_en: item.name_en || '',
       name_ar: item.name_ar || '',
       location: item.location || '',
@@ -208,15 +274,25 @@ export default function WarehousePage() {
       pr_no: item.pr_no || '',
       status: item.status || 'draft',
       is_active: item.is_active !== undefined ? item.is_active : true,
+      adjustment_type: item.adjustment_type || 'surplus',
+      priority: item.priority || 'normal',
+      zone: item.zone || '',
+      max_capacity: item.max_capacity || 0,
+      capacity_unit: item.capacity_unit || 'unit',
+      request_no: item.request_no || '',
+      request_date: item.request_date || '',
+      required_date: item.required_date || '',
+      task_id: item.task_id || '',
     });
+    setMrFormItems(matRequestItems[item.id]?.map(i => ({ material_id: i.material_id, quantity_requested: i.quantity_requested, unit: i.unit || '' })) || []);
     setShowForm(true);
   }
 
   function openNewForm() {
-    setFormError(''); setEditId(null); setForm({ ...emptyItem }); setShowForm(true);
+    setFormError(''); setEditId(null); setForm({ ...emptyItem }); setMrFormItems([]); setShowForm(true);
   }
 
-  function renderTable(items: any[], cols: { key: string; label: string; render?: (item: any) => React.ReactNode }[], emptyKey: string) {
+  function renderTable(items: any[], cols: { key: string; label: string; render?: (item: any) => React.ReactNode }[], _emptyKey: string) {
     const filtered = filter(items, cols.map(c => c.key));
     const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
     return (
@@ -236,7 +312,9 @@ export default function WarehousePage() {
                     <td>
                       <div className="flex gap-1">
                         <button className="btn-sm btn-secondary" onClick={() => openEditForm(item)}><Edit3 size={12} /></button>
-                        <button className="btn-sm btn-danger" onClick={() => setDeleteTarget({ id: item.id, label: item.name_en || item.code || item.movement_no || item.pr_no })}><Trash2 size={12} /></button>
+                        {hasPermission('warehouse', 'delete') && (
+                          <button className="btn-sm btn-danger" onClick={() => setDeleteTarget({ id: item.id, label: item.name_en || item.code || item.movement_no || item.pr_no })}><Trash2 size={12} /></button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -251,10 +329,13 @@ export default function WarehousePage() {
   }
 
   // Column definitions
+  const projectMap = Object.fromEntries(projects.map(p => [p.id, p.project_code]));
+
   const warehouseCols = [
     { key: 'code', label: 'Code', render: (w: Warehouse) => <span className="font-mono text-xs">{w.code}</span> },
     { key: 'name_en', label: 'Name (EN)' },
     { key: 'location', label: 'Location' },
+    { key: 'project_id', label: 'Project', render: (w: Warehouse) => projectMap[w.project_id || ''] || '-' },
     { key: 'is_active', label: 'Status', render: (w: Warehouse) => <span className={`badge ${w.is_active ? 'badge-success' : 'badge'}`}>{w.is_active ? 'Active' : 'Inactive'}</span> },
   ];
 
@@ -289,21 +370,50 @@ export default function WarehousePage() {
 
   const requisitionCols = [
     { key: 'pr_no', label: 'PR No', render: (p: PR) => <span className="font-mono text-xs">{p.pr_no}</span> },
+    { key: 'project_id', label: 'Project', render: (p: PR) => projectMap[p.project_id || ''] || '-' },
     { key: 'status', label: 'Status', render: (p: PR) => <span className={`badge capitalize ${p.status === 'approved' ? 'badge-success' : p.status === 'rejected' ? 'badge-danger' : 'badge-warning'}`}>{p.status}</span> },
     { key: 'notes', label: 'Notes', render: (p: PR) => p.notes || '-' },
     { key: 'created_at', label: 'Date', render: (p: PR) => formatDate(p.created_at) },
   ];
 
+  const binCols = [
+    { key: 'code', label: 'Code', render: (b: WarehouseBin) => <span className="font-mono text-xs">{b.code}</span> },
+    { key: 'name_en', label: 'Name (EN)' },
+    { key: 'zone', label: 'Zone' },
+    { key: 'warehouse_id', label: 'Warehouse', render: (b: WarehouseBin) => (b as any).warehouse?.name_en || b.warehouse_id?.slice(0, 8) },
+    { key: 'max_capacity', label: 'Capacity', render: (b: WarehouseBin) => b.max_capacity ? `${b.max_capacity} ${b.capacity_unit || ''}` : '-' },
+    { key: 'is_active', label: 'Status', render: (b: WarehouseBin) => <span className={`badge ${b.is_active ? 'badge-success' : 'badge'}`}>{b.is_active ? 'Active' : 'Inactive'}</span> },
+  ];
+
+  const adjCols = [
+    { key: 'adjustment_no', label: 'Adjustment No', render: (a: StockAdjustment) => <span className="font-mono text-xs">{a.adjustment_no}</span> },
+    { key: 'warehouse_id', label: 'Warehouse' },
+    { key: 'adjustment_type', label: 'Type', render: (a: StockAdjustment) => {
+      const colors: Record<string, string> = { surplus: 'badge-success', damage: 'badge-danger', loss: 'badge-warning', expiry: 'badge', correction: 'badge-info', return: 'badge' };
+      return <span className={`badge capitalize ${colors[a.adjustment_type] || 'badge'}`}>{a.adjustment_type}</span>;
+    }},
+    { key: 'status', label: 'Status', render: (a: StockAdjustment) => {
+      const colors: Record<string, string> = { draft: 'badge', pending_approval: 'badge-warning', approved: 'badge-success', completed: 'badge-info', cancelled: 'badge-danger' };
+      return <span className={`badge capitalize ${colors[a.status] || 'badge'}`}>{a.status}</span>;
+    }},
+    { key: 'notes', label: 'Notes', render: (a: StockAdjustment) => a.notes || '-' },
+    { key: 'created_at', label: 'Date', render: (a: StockAdjustment) => formatDate(a.created_at) },
+  ];
+
   const showNewButton = activeTab !== 'inventory';
 
   function renderForm() {
+    const { hasPermission } = useAuth();
     const isWarehouse = activeTab === 'warehouses';
     const isMaterial = activeTab === 'materials';
     const isInventory = activeTab === 'inventory';
     const isMovement = activeTab === 'movements';
     const isRequisition = activeTab === 'requisitions';
+    const isBins = activeTab === 'bins';
+    const isAdjustment = activeTab === 'adjustments';
+    const isMatReq = activeTab === 'material_requests';
 
-    const titleMap: Record<string, string> = { warehouses: 'Warehouse', materials: 'Material', inventory: 'Inventory Item', movements: 'Stock Movement', requisitions: 'Purchase Requisition' };
+    const titleMap: Record<string, string> = { warehouses: 'Warehouse', materials: 'Material', inventory: 'Inventory Item', movements: 'Stock Movement', requisitions: 'Purchase Requisition', bins: 'Warehouse Bin', adjustments: 'Stock Adjustment', material_requests: 'Material Request' };
 
     return (
       <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowForm(false)}>
@@ -443,10 +553,128 @@ export default function WarehousePage() {
                 <div><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
               </>
             )}
+
+            {/* Bin */}
+            {isBins && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Code *</label><input className="input" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} /></div>
+                  <div><label className="label">Name (EN)</label><input className="input" value={form.name_en} onChange={e => setForm({ ...form, name_en: e.target.value })} /></div>
+                </div>
+                <div><label className="label">Name (AR)</label><input className="input text-right" dir="rtl" value={form.name_ar} onChange={e => setForm({ ...form, name_ar: e.target.value })} /></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Zone</label><input className="input" value={form.zone} onChange={e => setForm({ ...form, zone: e.target.value })} /></div>
+                  <div><label className="label">Warehouse *</label>
+                    <select className="input" value={form.warehouse_id} onChange={e => setForm({ ...form, warehouse_id: e.target.value })}>
+                      <option value="">-- Select --</option>
+                      {warehouses.filter(w => w.is_active).map(w => <option key={w.id} value={w.id}>{w.code} - {w.name_en}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Max Capacity</label><input type="number" className="input" value={form.max_capacity} onChange={e => setForm({ ...form, max_capacity: parseFloat(e.target.value) || 0 })} /></div>
+                  <div><label className="label">Capacity Unit</label>
+                    <select className="input" value={form.capacity_unit} onChange={e => setForm({ ...form, capacity_unit: e.target.value })}>
+                      {['unit','kg','ton','m3','l','box','pallet'].map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 mt-2"><input type="checkbox" checked={form.is_active} onChange={e => setForm({ ...form, is_active: e.target.checked })} /> Active</label>
+              </>
+            )}
+
+            {/* Adjustment */}
+            {isAdjustment && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Adjustment No *</label><input className="input" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} /></div>
+                  <div><label className="label">Type *</label>
+                    <select className="input" value={form.adjustment_type} onChange={e => setForm({ ...form, adjustment_type: e.target.value })}>
+                      {['surplus','damage','loss','expiry','correction','return'].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div><label className="label">Warehouse *</label>
+                  <select className="input" value={form.warehouse_id} onChange={e => setForm({ ...form, warehouse_id: e.target.value })}>
+                    <option value="">-- Select --</option>
+                    {warehouses.filter(w => w.is_active).map(w => <option key={w.id} value={w.id}>{w.code} - {w.name_en}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Status</label>
+                    <select className="input" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
+                      {['draft','pending_approval','approved','completed','cancelled'].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
+              </>
+            )}
+
+            {/* Material Request */}
+            {isMatReq && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Request No *</label><input className="input" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} /></div>
+                  <div><label className="label">Priority</label>
+                    <select className="input" value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>
+                      {['low','normal','high','urgent'].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Project</label>
+                    <select className="input" value={form.project_id} onChange={e => setForm({ ...form, project_id: e.target.value })}>
+                      <option value="">-- Select --</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.name_en}</option>)}
+                    </select>
+                  </div>
+                  <div><label className="label">Warehouse</label>
+                    <select className="input" value={form.warehouse_id} onChange={e => setForm({ ...form, warehouse_id: e.target.value })}>
+                      <option value="">-- Select --</option>
+                      {warehouses.filter(w => w.is_active).map(w => <option key={w.id} value={w.id}>{w.code} - {w.name_en}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div><label className="label">Task ID (optional)</label><input className="input" value={form.task_id} onChange={e => setForm({ ...form, task_id: e.target.value })} placeholder="Link to execution task" /></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="label">Request Date</label><input type="date" className="input" value={form.request_date} onChange={e => setForm({ ...form, request_date: e.target.value })} /></div>
+                  <div><label className="label">Required Date</label><input type="date" className="input" value={form.required_date} onChange={e => setForm({ ...form, required_date: e.target.value })} /></div>
+                </div>
+                <div><label className="label">Status</label>
+                  <select className="input" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
+                    {['draft','pending_approval','approved','partially_issued','issued','cancelled'].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
+                {/* Line Items */}
+                {form.project_id && (
+                  <div className="border-t pt-4">
+                    <label className="label mb-2">Request Items</label>
+                    {mrFormItems.map((item, idx) => (
+                      <div key={idx} className="grid grid-cols-3 gap-2 mb-2 items-end">
+                        <div>
+                          <select className="input text-sm" value={item.material_id} onChange={(e) => { const i = [...mrFormItems]; i[idx].material_id = e.target.value; const mat = materials.find(m => m.id === e.target.value); if (mat) i[idx].unit = mat.unit; setMrFormItems(i); }}>
+                            <option value="">-- Material --</option>
+                            {materials.filter(m => m.is_active).map(m => <option key={m.id} value={m.id}>{m.code} - {m.name_en}</option>)}
+                          </select>
+                        </div>
+                        <div><input type="number" className="input text-sm" placeholder="Qty" value={item.quantity_requested || ''} onChange={(e) => { const i = [...mrFormItems]; i[idx].quantity_requested = parseFloat(e.target.value) || 0; setMrFormItems(i); }} /></div>
+                        <div className="flex gap-1 items-center">
+                          <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{item.unit || ''}</span>
+                          <button className="btn-sm btn-danger ml-auto" onClick={() => { setMrFormItems(mrFormItems.filter((_, i) => i !== idx)); }}><Trash2 size={12} /></button>
+                        </div>
+                      </div>
+                    ))}
+                    <button className="btn-sm btn-secondary mt-1" onClick={() => setMrFormItems([...mrFormItems, { material_id: '', quantity_requested: 0, unit: '' }])}>+ Add Item</button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           <div className="flex gap-2 mt-4">
-            <button className="btn-primary btn-sm" onClick={save} disabled={saving}>{saving ? 'Saving...' : editId ? 'Update' : 'Save'}</button>
+            {hasPermission('warehouse') && <button className="btn-primary btn-sm" onClick={save} disabled={saving}>{saving ? 'Saving...' : editId ? 'Update' : 'Save'}</button>}
             <button className="btn-secondary btn-sm" onClick={() => setShowForm(false)}>Cancel</button>
           </div>
         </div>
@@ -463,21 +691,24 @@ export default function WarehousePage() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <button className="btn-sm btn-secondary" onClick={() => {
-            let data: (Warehouse | Material | InventoryItem | StockMovement | PR)[] = [];
+            let data: unknown[] = [];
             if (activeTab === 'warehouses') data = warehouses;
             else if (activeTab === 'materials') data = materials;
             else if (activeTab === 'inventory') data = inventory;
             else if (activeTab === 'movements') data = movements;
             else if (activeTab === 'requisitions') data = requisitions;
+            else if (activeTab === 'bins') data = bins;
+            else if (activeTab === 'adjustments') data = adjustments;
+            else if (activeTab === 'material_requests') data = matRequests;
             if (data.length) exportCSV(data as unknown as Record<string, unknown>[], `${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`);
           }}><Download size={14} /> Export</button>
           {(activeTab === 'warehouses' || activeTab === 'materials') && <button className="btn-sm btn-secondary" onClick={() => setShowImport(true)}><Upload size={14} /> Import</button>}
-          {showNewButton && <button className="btn-primary btn-sm" onClick={openNewForm}><Plus size={16} /> New</button>}
+          {showNewButton && hasPermission('warehouse', 'create') && <button className="btn-primary btn-sm" onClick={openNewForm}><Plus size={16} /> New</button>}
         </div>
       </div>
 
       <div className="tabs overflow-x-auto">
-        {(['warehouses','materials','inventory','movements','requisitions'] as Tab[]).map(tab => (
+        {(['warehouses','materials','inventory','movements','requisitions','bins','adjustments','material_requests'] as Tab[]).map(tab => (
           <button key={tab} className={`tab whitespace-nowrap ${activeTab === tab ? 'tab-active' : ''}`} onClick={() => setActiveTab(tab)}>{t(`warehouse.${tab}`)}</button>
         ))}
       </div>
@@ -492,6 +723,80 @@ export default function WarehousePage() {
       {activeTab === 'inventory' && renderTable(inventory, inventoryCols, 'no_inventory')}
       {activeTab === 'movements' && renderTable(movements, movementCols, 'no_movements')}
       {activeTab === 'requisitions' && renderTable(requisitions, requisitionCols, 'no_requisitions')}
+      {activeTab === 'bins' && renderTable(bins, binCols, 'no_bins')}
+      {activeTab === 'adjustments' && renderTable(adjustments, adjCols, 'no_adjustments')}
+      {activeTab === 'material_requests' && (() => {
+        const filtered = !debouncedSearch ? matRequests : matRequests.filter(mr => mr.request_no?.toLowerCase().includes(debouncedSearch.toLowerCase()) || mr.project?.name_en?.toLowerCase().includes(debouncedSearch.toLowerCase()));
+        const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+        return (
+          <div className="card">
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Request No</th><th>Project</th><th>Priority</th><th>Status</th><th>Date</th><th>Required Date</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={7} className="text-center py-8" style={{ color: 'var(--color-text-secondary)' }}>Loading...</td></tr>
+                  ) : filtered.length === 0 ? (
+                    <tr><td colSpan={7}><EmptyState title="No material requests" description="Add your first request to get started." actionLabel="Add New" onAction={openNewForm} /></td></tr>
+                  ) : (
+                    paged.map(mr => (
+                      <tr key={mr.id}>
+                        <td><span className="font-mono text-xs">{mr.request_no}</span></td>
+                        <td className="text-xs">{mr.project ? `${mr.project.project_code} - ${mr.project.name_en}` : projectMap[mr.project_id || ''] || '-'}</td>
+                        <td><span className={`badge capitalize ${mr.priority === 'urgent' ? 'badge-danger' : mr.priority === 'high' ? 'badge-warning' : mr.priority === 'normal' ? 'badge-info' : 'badge'}`}>{mr.priority}</span></td>
+                        <td><span className={`badge capitalize ${mr.status === 'issued' ? 'badge-info' : mr.status === 'approved' ? 'badge-success' : mr.status === 'cancelled' ? 'badge-danger' : mr.status === 'partially_issued' ? 'badge-info' : mr.status === 'pending_approval' ? 'badge-warning' : 'badge'}`}>{mr.status}</span></td>
+                        <td className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{formatDate(mr.created_at)}</td>
+                        <td className="text-sm">{mr.required_date ? formatDate(mr.required_date) : '-'}</td>
+                        <td>
+                          <div className="flex gap-1">
+                            {matRequestItems[mr.id]?.length > 0 && (
+                              <button className="btn-sm btn-secondary" onClick={() => setViewingMrId(mr.id)} title="View Items"><Eye size={14} /></button>
+                            )}
+                            {mr.status === 'approved' && (
+                              <button className="btn-sm btn-primary" onClick={() => issueMaterialRequest(mr)} title="Issue Materials"><CheckCircle size={14} /></button>
+                            )}
+                            <button className="btn-sm btn-secondary" onClick={() => openEditForm(mr)}><Edit3 size={12} /></button>
+                            {hasPermission('warehouse', 'delete') && (
+                              <button className="btn-sm btn-danger" onClick={() => setDeleteTarget({ id: mr.id, label: mr.request_no })}><Trash2 size={12} /></button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination page={page} pageSize={pageSize} total={filtered.length} onChange={setPage} />
+          </div>
+        );
+      })()}
+
+      {viewingMrId && (() => {
+        const items = matRequestItems[viewingMrId] || [];
+        const mr = matRequests.find(r => r.id === viewingMrId);
+        return (
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setViewingMrId(null)}>
+            <div className="rounded-xl p-6 w-full max-w-lg shadow-2xl" style={{ backgroundColor: 'var(--color-surface)' }} onClick={e => e.stopPropagation()}>
+              <h3 className="text-lg font-semibold mb-1">{mr?.request_no || 'Items'}</h3>
+              <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>{items.length} item(s)</p>
+              <table className="table mb-4">
+                <thead><tr><th>Material</th><th>Qty Requested</th><th>Qty Issued</th></tr></thead>
+                <tbody>
+                  {items.map(item => (
+                    <tr key={item.id}>
+                      <td className="text-sm">{item.materials ? `${item.materials.code} - ${item.materials.name_en}` : item.material_id?.slice(0, 8)}</td>
+                      <td className="text-sm">{item.quantity_requested}</td>
+                      <td className="text-sm">{item.quantity_issued}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button className="btn-primary btn-sm" onClick={() => setViewingMrId(null)}>Close</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {showForm && renderForm()}
       {showImport && <CsvImportModal

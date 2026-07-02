@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { useT } from '../hooks/useTranslation';
 import { supabase } from '../services/supabase';
 import { useToast } from '../context/ToastContext';
@@ -7,9 +9,10 @@ import { exportCSV } from '../utils/csv';
 import CsvImportModal from '../components/CsvImportModal';
 import { type SyncConfig } from '../services/syncService';
 import EmptyState from '../components/EmptyState';
-import { Plus, Download, Upload, Search, Eye, ExternalLink, Edit3 } from 'lucide-react';
+import { Plus, Download, Upload, Search, Eye, ExternalLink, Edit3, LayoutGrid, List, User, Calendar } from 'lucide-react';
 import Pagination from '../components/Pagination';
-import { useNavigate } from 'react-router-dom';
+import ViewToggle from '../components/ViewToggle';
+import type { ViewMode } from '../components/ViewToggle';
 import WirFormModal from '../components/execution/WirFormModal';
 import TaskFormModal from '../components/execution/TaskFormModal';
 import ItemFormModal from '../components/execution/ItemFormModal';
@@ -73,20 +76,26 @@ interface DivisionBreakdownItem {
   subDivisions: DivisionSubItem[];
 }
 
+const FALLBACK_DIVISIONS = ['Civil', 'Electrical', 'Mechanical', 'Architectural', 'Structural', 'Plumbing', 'Fire Protection', 'HVAC', 'Landscaping', 'Interior Finishing'];
+
 export default function ExecutionPage() {
   const t = useT();
   const toast = useToast();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'wir' | 'tasks' | 'items' | 'progress'>('wir');
+  const { hasPermission } = useAuth();
+  const [activeTab, setActiveTab] = useState<'wir' | 'tasks' | 'items' | 'progress' | 'materials'>('wir');
   const [wirs, setWirs] = useState<WorkRequest[]>([]);
   const [tasks, setTasks] = useState<WorkTask[]>([]);
   const [items, setItems] = useState<ItemDefinition[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
+  const [, setActivities] = useState<Activity[]>([]);
   const [itemDefinitions, setItemDefinitions] = useState<{ id: string; project_id: string; activity: string; wbs_code: string; division: string; sub_division: string; activity_weight: number }[]>([]);
   const [units, setUnits] = useState<{ id: string; project_id: string; unit_code: string; unit_type: string; zone: string; block: string }[]>([]);
   const [inspectors, setInspectors] = useState<{ id: string; full_name_en: string }[]>([]);
   const [userProfiles, setUserProfiles] = useState<UserProfile[]>([]);
+  const [filterProject, setFilterProject] = useState('');
+  const [sp] = useSearchParams();
+  useEffect(() => { const pid = sp.get('project_id'); if (pid) setFilterProject(pid); }, [sp]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -94,6 +103,7 @@ export default function ExecutionPage() {
   const [showWirForm, setShowWirForm] = useState(false);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [taskView, setTaskView] = useState<ViewMode>('kanban');
   const [wirForm, setWirForm] = useState({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' });
   const [taskForm, setTaskForm] = useState({ project_id: '', task_code: '', title_en: '', status: 'open', progress: 0, assigned_to: '', activity_id: '', division: '', sub_division: '', activity: '', zone: '', block: '', unit_id: '', priority: 'medium', target_date: '', description: '' });
   const [showItemForm, setShowItemForm] = useState(false);
@@ -120,8 +130,8 @@ export default function ExecutionPage() {
   // Progress tab state
   const [progressProjectId, setProgressProjectId] = useState('');
   const [progressWrs, setProgressWrs] = useState<WorkRequest[]>([]);
-
-  const FALLBACK_DIVISIONS = ['Civil', 'Electrical', 'Mechanical', 'Architectural', 'Structural', 'Plumbing', 'Fire Protection', 'HVAC', 'Landscaping', 'Interior Finishing'];
+  const [matRequests, setMatRequests] = useState<any[]>([]);
+  const [matRequestItems, setMatRequestItems] = useState<any[]>([]);
 
   // WR Cascading: Divisions + Zones
   useEffect(() => {
@@ -222,8 +232,10 @@ export default function ExecutionPage() {
     if (activeTab === 'progress' && progressProjectId) {
       loadProgressData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, progressProjectId]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [activeTab]);
   useEffect(() => { setPage(1); }, [activeTab]);
   useEffect(() => { setPage(1); }, [debouncedSearch]);
@@ -231,7 +243,7 @@ export default function ExecutionPage() {
   async function load() {
     setLoading(true);
     try {
-      const [wirsRes, tasksRes, itemsRes, projRes, actRes, itemDefRes, unitsRes, inspRes, profRes] = await Promise.all([
+      const [wirsRes, tasksRes, itemsRes, projRes, actRes, itemDefRes, unitsRes, inspRes, profRes, mrRes, mriRes] = await Promise.all([
         activeTab === 'wir' ? supabase.from('work_requests').select('*').eq('is_ncr', false).order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
         activeTab === 'tasks' ? supabase.from('work_tasks').select('*').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
         activeTab === 'items' ? supabase.from('item_definitions').select('*, projects(name_en, project_code)').order('created_at') : Promise.resolve({ data: [] }),
@@ -241,7 +253,20 @@ export default function ExecutionPage() {
         supabase.from('units').select('id, project_id, unit_code, unit_type, zone, block').order('unit_code'),
         supabase.from('user_profiles').select('id, full_name_en').order('full_name_en'),
         supabase.from('user_profiles').select('id, full_name_en, role').in('role', ['engineer', 'qc', 'consultant']).order('full_name_en'),
+        activeTab === 'materials' ? supabase.from('material_requests').select('*, project:projects(project_code, name_en)').order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
+        activeTab === 'materials' ? supabase.from('material_request_items').select('*, materials(code, name_en)') : Promise.resolve({ data: [] }),
       ]);
+      setWirs((wirsRes.data || []) as WorkRequest[]);
+      setTasks((tasksRes.data || []) as WorkTask[]);
+      setItems((itemsRes.data || []) as ItemDefinition[]);
+      setProjects((projRes.data || []) as Project[]);
+      setActivities((actRes.data || []) as Activity[]);
+      setItemDefinitions((itemDefRes.data || []) as { id: string; project_id: string; activity: string; wbs_code: string; division: string; sub_division: string; activity_weight: number }[]);
+      setUnits((unitsRes.data || []) as { id: string; project_id: string; unit_code: string; unit_type: string; zone: string; block: string }[]);
+      setInspectors((inspRes.data || []) as { id: string; full_name_en: string }[]);
+      setUserProfiles((profRes.data || []) as UserProfile[]);
+      setMatRequests((mrRes.data || []) as any[]);
+      setMatRequestItems((mriRes.data || []) as any[]);
       setWirs((wirsRes.data || []) as WorkRequest[]);
       setTasks((tasksRes.data || []) as WorkTask[]);
       setItems((itemsRes.data || []) as ItemDefinition[]);
@@ -268,9 +293,10 @@ export default function ExecutionPage() {
     setProgressWrs((wrData || []) as WorkRequest[]);
   }
 
-  const filteredWirs = wirs.filter((w) => !debouncedSearch || w.wir_no.toLowerCase().includes(debouncedSearch.toLowerCase()) || w.title_en.toLowerCase().includes(debouncedSearch.toLowerCase()));
-  const filteredTasks = tasks.filter((t) => !debouncedSearch || t.task_code.toLowerCase().includes(debouncedSearch.toLowerCase()) || t.title_en.toLowerCase().includes(debouncedSearch.toLowerCase()));
-  const filteredItems = items.filter((i) => !debouncedSearch || i.wbs_code?.toLowerCase().includes(debouncedSearch.toLowerCase()) || i.division?.toLowerCase().includes(debouncedSearch.toLowerCase()) || i.activity?.toLowerCase().includes(debouncedSearch.toLowerCase()));
+  const filteredWirs = wirs.filter((w) => (!debouncedSearch || w.wir_no.toLowerCase().includes(debouncedSearch.toLowerCase()) || w.title_en.toLowerCase().includes(debouncedSearch.toLowerCase())) && (!filterProject || w.project_id === filterProject));
+  const filteredTasks = tasks.filter((t) => (!debouncedSearch || t.task_code.toLowerCase().includes(debouncedSearch.toLowerCase()) || t.title_en.toLowerCase().includes(debouncedSearch.toLowerCase())) && (!filterProject || t.project_id === filterProject));
+  const filteredItems = items.filter((i) => (!debouncedSearch || i.wbs_code?.toLowerCase().includes(debouncedSearch.toLowerCase()) || i.division?.toLowerCase().includes(debouncedSearch.toLowerCase()) || i.activity?.toLowerCase().includes(debouncedSearch.toLowerCase())) && (!filterProject || i.project_id === filterProject));
+  const filteredMatRequests = matRequests.filter((m: any) => (!debouncedSearch || m.request_no?.toLowerCase().includes(debouncedSearch.toLowerCase())) && (!filterProject || m.project_id === filterProject));
 
   async function saveWir() {
     setFormError('');
@@ -483,6 +509,7 @@ export default function ExecutionPage() {
     }
 
     return { percent, completed, total, breakdown, divisionBreakdown };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progressWrs, itemDefinitions, units, progressProjectId]);
 
   const importConfig: SyncConfig = activeTab === 'wir'
@@ -547,6 +574,116 @@ export default function ExecutionPage() {
         uniqueKeys: ['wir_no'],
       };
 
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+
+  const KANBAN_STATUSES = [
+    { key: 'open', label: 'Open', color: '#3b82f6' },
+    { key: 'in_progress', label: 'In Progress', color: '#eab308' },
+    { key: 'review', label: 'Review', color: '#f97316' },
+    { key: 'completed', label: 'Completed', color: '#22c55e' },
+    { key: 'on_hold', label: 'On Hold', color: '#a855f7' },
+    { key: 'cancelled', label: 'Cancelled', color: '#ef4444' },
+  ];
+
+  async function handleTaskDrop(taskId: string, newStatus: string) {
+    const { error } = await supabase.from('work_tasks').update({ status: newStatus }).eq('id', taskId);
+    if (!error) {
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } as WorkTask : t));
+    } else {
+      console.error('Failed to update task status', error);
+    }
+    setDragTaskId(null);
+  }
+
+  function renderTasksKanban() {
+    if (loading) return <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>{t('common.loading')}</div>;
+
+    return (
+      <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 'calc(100vh - 300px)' }}>
+        {KANBAN_STATUSES.map(col => {
+          const colTasks = filteredTasks.filter(t => t.status === col.key);
+          return (
+            <div
+              key={col.key}
+              className="flex-shrink-0"
+              style={{ width: '280px' }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = e.dataTransfer.getData('taskId');
+                if (id && dragTaskId === id) handleTaskDrop(id, col.key);
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: col.color }} />
+                <span className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>{col.label}</span>
+                <span className="text-xs ml-auto" style={{ color: 'var(--color-text-muted)' }}>{colTasks.length}</span>
+              </div>
+              <div
+                className="space-y-2 min-h-[200px] rounded-lg p-2 transition-colors"
+                style={{
+                  backgroundColor: dragTaskId ? 'color-mix(in srgb, var(--color-primary) 5%, transparent)' : 'transparent',
+                  border: '1px dashed var(--color-border)',
+                }}
+              >
+                {colTasks.length === 0 ? (
+                  <div className="text-xs text-center py-6" style={{ color: 'var(--color-text-muted)' }}>
+                    No tasks
+                  </div>
+                ) : (
+                  colTasks.map(task => (
+                    <div
+                      key={task.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragTaskId(task.id);
+                        e.dataTransfer.setData('taskId', task.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragEnd={() => setDragTaskId(null)}
+                      className="kanban-card"
+                      style={{ opacity: dragTaskId === task.id ? 0.4 : 1 }}
+                      onClick={() => navigate(`/execution/tasks/${task.id}`)}
+                    >
+                      <div className="kanban-card-title">{task.task_code || task.title_en}</div>
+                      <div className="kanban-card-body">
+                        <p className="truncate mb-2">{task.title_en || ''}</p>
+                        <div className="flex items-center gap-2 text-xs">
+                          {task.assigned_to && (
+                            <span className="flex items-center gap-1">
+                              <User size={11} />
+                              {inspectors.find(i => i.id === task.assigned_to)?.full_name_en || '-'}
+                            </span>
+                          )}
+                          {task.target_date && (
+                            <span className="flex items-center gap-1">
+                              <Calendar size={11} />
+                              {new Date(task.target_date).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className={`badge text-[10px] capitalize ${task.priority === 'high' ? 'badge-danger' : task.priority === 'low' ? 'badge-neutral' : 'badge-info'}`}>
+                            {task.priority || 'medium'}
+                          </span>
+                          {task.progress > 0 && (
+                            <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
+                              {task.progress}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className="page-enter space-y-6">
       <div className="flex items-center justify-between">
@@ -568,11 +705,11 @@ export default function ExecutionPage() {
             </>
           )}
           {activeTab === 'wir' ? (
-            <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); setShowWirForm(true); }}><Plus size={16} /> {t('execution.new_wir')}</button>
+            hasPermission('execution', 'create') && <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); setShowWirForm(true); }}><Plus size={16} /> {t('execution.new_wir')}</button>
           ) : activeTab === 'items' ? (
-            <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setEditingItemId(null); setItemForm({ project_id: '', division: '', sub_division: '', activity: '', activity_weight: 0, wbs_code: '', wbs_description: '', booked_budget: 0, open_budget: 0, budget_rate: 0, quantity: 0, unit_price: 0 }); setShowItemForm(true); }}><Plus size={16} /> New Item</button>
+            hasPermission('execution', 'create') && <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setEditingItemId(null); setItemForm({ project_id: '', division: '', sub_division: '', activity: '', activity_weight: 0, wbs_code: '', wbs_description: '', booked_budget: 0, open_budget: 0, budget_rate: 0, quantity: 0, unit_price: 0 }); setShowItemForm(true); }}><Plus size={16} /> New Item</button>
           ) : activeTab === 'tasks' ? (
-            <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setTaskForm({ project_id: '', task_code: '', title_en: '', status: 'open', progress: 0, assigned_to: '', activity_id: '', division: '', sub_division: '', activity: '', zone: '', block: '', unit_id: '', priority: 'medium', target_date: '', description: '' }); setShowTaskForm(true); }}><Plus size={16} /> {t('execution.new_task')}</button>
+            hasPermission('execution', 'create') && <button className="btn-primary btn-sm" onClick={() => { setFormError(''); setTaskForm({ project_id: '', task_code: '', title_en: '', status: 'open', progress: 0, assigned_to: '', activity_id: '', division: '', sub_division: '', activity: '', zone: '', block: '', unit_id: '', priority: 'medium', target_date: '', description: '' }); setShowTaskForm(true); }}><Plus size={16} /> {t('execution.new_task')}</button>
           ) : null}
         </div>
       </div>
@@ -586,12 +723,21 @@ export default function ExecutionPage() {
           onClick={() => setActiveTab('items')}>Item Definitions</button>
         <button className={`tab ${activeTab === 'progress' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('progress')}>Progress</button>
+        <button className={`tab ${activeTab === 'materials' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('materials')}>Materials</button>
       </div>
 
       {activeTab !== 'progress' && (
-        <div className="relative max-w-sm">
-          <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input className="input ps-9" placeholder={t('common.search')} value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="flex items-center gap-3">
+          <select className="input max-w-[200px]" value={filterProject} onChange={(e) => { setFilterProject(e.target.value); setPage(1); }}>
+            <option value="">{t('common.all_projects') || 'All Projects'}</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.name_en}</option>)}
+          </select>
+          <div className="relative max-w-sm flex-1">
+            <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input className="input ps-9" placeholder={t('common.search')} value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          {activeTab === 'tasks' && <ViewToggle value={taskView} onChange={(v) => setTaskView(v)} views={['table', 'kanban']} />}
         </div>
       )}
 
@@ -610,6 +756,8 @@ export default function ExecutionPage() {
           onImport={() => setShowImport(true)}
           onNavigateWir={(id) => navigate(`/execution/wir/${id}`)}
         />
+      ) : activeTab === 'tasks' && taskView === 'kanban' ? (
+        renderTasksKanban()
       ) : (
         /* ===== TABLE VIEW (WIR / TASKS / ITEMS) ===== */
         <div className="card">
@@ -621,6 +769,8 @@ export default function ExecutionPage() {
                     <><th>WR No</th><th>Item Definition</th><th>Activity</th><th>Division</th><th>Unit</th><th>Status</th><th>QC Engineer</th><th>Consultant</th><th>{t('common.actions')}</th></>
                   ) : activeTab === 'items' ? (
                     <><th>Project</th><th>Division</th><th>Sub-Division</th><th>Activity</th><th>Wt%</th><th>WBS Code</th><th>WBS Description</th><th>Booked Budget</th><th>Open Budget</th><th>Rate</th><th>Contingency</th><th>Qty</th><th>Unit Price</th><th>{t('common.actions')}</th></>
+                  ) : activeTab === 'materials' ? (
+                    <><th>Request No</th><th>Project</th><th>Priority</th><th>Status</th><th>Items</th><th>Date</th><th>Required Date</th></>
                   ) : (
                     <><th>Task No</th><th>Project</th><th>Activity</th><th>Assigned To</th><th>Priority</th><th>Status</th><th>Target Date</th><th>Actual Date</th><th>{t('common.actions')}</th></>
                   )}
@@ -630,11 +780,13 @@ export default function ExecutionPage() {
                 {loading ? (
                   <tr><td colSpan={99} className="text-center py-8 text-gray-400">{t('common.loading')}</td></tr>
                 ) : activeTab === 'wir' && filteredWirs.length === 0 ? (
-                  <EmptyState title="No WIRs found" description="Create a Work Inspection Request to start tracking inspections." actionLabel={t('execution.new_wir')} onAction={() => { setFormError(''); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); setShowWirForm(true); }} />
+                  <tr><td colSpan={99}><EmptyState title="No WIRs found" description="Create a Work Inspection Request to start tracking inspections." actionLabel={t('execution.new_wir')} onAction={() => { setFormError(''); setWirForm({ project_id: '', wir_no: '', title_en: '', title_ar: '', location: '', status: 'draft', activity_id: '', item_definition_id: '', unit_id: '', inspector: '', description: '', division: '', sub_division: '', activity: '', activity_weight: 0, zone: '', block: '', qc_engineer_id: '', consultant_engineer_id: '' }); setShowWirForm(true); }} /></td></tr>
                 ) : activeTab === 'tasks' && filteredTasks.length === 0 ? (
-                  <EmptyState title="No Tasks found" description="Create a Work Task to start tracking project activities." actionLabel={t('execution.new_task')} onAction={() => { setFormError(''); setTaskForm({ project_id: '', task_code: '', title_en: '', status: 'open', progress: 0, assigned_to: '', activity_id: '', division: '', sub_division: '', activity: '', zone: '', block: '', unit_id: '', priority: 'medium', target_date: '', description: '' }); setShowTaskForm(true); }} />
+                  <tr><td colSpan={99}><EmptyState title="No Tasks found" description="Create a Work Task to start tracking project activities." actionLabel={t('execution.new_task')} onAction={() => { setFormError(''); setTaskForm({ project_id: '', task_code: '', title_en: '', status: 'open', progress: 0, assigned_to: '', activity_id: '', division: '', sub_division: '', activity: '', zone: '', block: '', unit_id: '', priority: 'medium', target_date: '', description: '' }); setShowTaskForm(true); }} /></td></tr>
                 ) : activeTab === 'items' && filteredItems.length === 0 ? (
-                  <EmptyState title="No Item Definitions found" description="Create an Item Definition to start tracking project items." actionLabel="New Item" onAction={() => { setFormError(''); setEditingItemId(null); setItemForm({ project_id: '', division: '', sub_division: '', activity: '', activity_weight: 0, wbs_code: '', wbs_description: '', booked_budget: 0, open_budget: 0, budget_rate: 0, quantity: 0, unit_price: 0 }); setShowItemForm(true); }} />
+                  <tr><td colSpan={99}><EmptyState title="No Item Definitions found" description="Create an Item Definition to start tracking project items." actionLabel="New Item" onAction={() => { setFormError(''); setEditingItemId(null); setItemForm({ project_id: '', division: '', sub_division: '', activity: '', activity_weight: 0, wbs_code: '', wbs_description: '', booked_budget: 0, open_budget: 0, budget_rate: 0, quantity: 0, unit_price: 0 }); setShowItemForm(true); }} /></td></tr>
+                ) : activeTab === 'materials' && filteredMatRequests.length === 0 ? (
+                  <tr><td colSpan={99}><EmptyState title="No Material Requests" description="Material requests are created from the Warehouse page." /></td></tr>
                 ) : activeTab === 'wir' ? (
                   filteredWirs.slice((page - 1) * pageSize, page * pageSize).map((w) => (
                     <tr key={w.id} className="clickable" onClick={() => navigate(`/execution/wir/${w.id}`)}>
@@ -670,6 +822,21 @@ export default function ExecutionPage() {
                       </td>
                     </tr>
                   ))
+                ) : activeTab === 'materials' ? (
+                  filteredMatRequests.slice((page - 1) * pageSize, page * pageSize).map((mr: any) => {
+                    const items = matRequestItems.filter((i: any) => i.request_id === mr.id);
+                    return (
+                      <tr key={mr.id}>
+                        <td className="font-mono text-xs">{mr.request_no}</td>
+                        <td className="text-xs">{mr.project ? `${mr.project.project_code} - ${mr.project.name_en}` : '-'}</td>
+                        <td><span className={`badge capitalize ${mr.priority === 'urgent' ? 'badge-danger' : mr.priority === 'high' ? 'badge-warning' : mr.priority === 'normal' ? 'badge-info' : 'badge'}`}>{mr.priority}</span></td>
+                        <td><span className={`badge capitalize ${mr.status === 'issued' ? 'badge-info' : mr.status === 'approved' ? 'badge-success' : mr.status === 'cancelled' ? 'badge-danger' : mr.status === 'partially_issued' ? 'badge-info' : mr.status === 'pending_approval' ? 'badge-warning' : 'badge'}`}>{mr.status}</span></td>
+                        <td className="text-sm">{items.length} item(s)</td>
+                        <td className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{new Date(mr.created_at).toLocaleDateString()}</td>
+                        <td className="text-sm">{mr.required_date || '-'}</td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   filteredTasks.slice((page - 1) * pageSize, page * pageSize).map((t) => (
                     <tr key={t.id} className="clickable" onClick={() => navigate(`/execution/tasks/${t.id}`)}>
@@ -688,7 +855,7 @@ export default function ExecutionPage() {
               </tbody>
             </table>
           </div>
-          <Pagination page={page} pageSize={pageSize} total={activeTab === 'wir' ? filteredWirs.length : activeTab === 'items' ? filteredItems.length : filteredTasks.length} onChange={setPage} />
+          <Pagination page={page} pageSize={pageSize} total={activeTab === 'wir' ? filteredWirs.length : activeTab === 'items' ? filteredItems.length : activeTab === 'materials' ? filteredMatRequests.length : filteredTasks.length} onChange={setPage} />
         </div>
       )}
 

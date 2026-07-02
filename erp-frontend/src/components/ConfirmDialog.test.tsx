@@ -1,4 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { vi } from 'vitest';
 import ConfirmDialog from './ConfirmDialog';
 
 describe('ConfirmDialog', () => {
@@ -18,7 +19,7 @@ describe('ConfirmDialog', () => {
     expect(screen.getByText('Delete')).toBeInTheDocument();
   });
 
-  it('calls onConfirm when confirm button clicked', () => {
+  it('calls onConfirm when confirm button clicked', async () => {
     const onConfirm = vi.fn();
     render(
       <ConfirmDialog
@@ -31,7 +32,9 @@ describe('ConfirmDialog', () => {
       />
     );
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    expect(onConfirm).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('calls onCancel when cancel button clicked', () => {

@@ -1,13 +1,15 @@
 import { useState, useRef } from 'react';
 import { useT } from '../hooks/useTranslation';
 import { sqlApi } from '../services/api';
-import { Play, AlertCircle, CheckCircle, Trash2, ShieldAlert } from 'lucide-react';
+import { Play, AlertCircle, CheckCircle, Trash2 } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useAuth } from '../context/AuthContext';
 
 const DESTRUCTIVE_PATTERNS = /^\s*(DROP|TRUNCATE|DELETE|UPDATE|ALTER|CREATE\s+TABLE|REINDEX|VACUUM)\b/im;
 
 export default function SqlEditorPage() {
   const t = useT();
+  const { hasPermission } = useAuth();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ columns: string[]; rows: Record<string, unknown>[]; error?: string } | null>(null);
   const [running, setRunning] = useState(false);
@@ -63,9 +65,9 @@ export default function SqlEditorPage() {
               <button className="btn-sm btn-secondary" onClick={() => setQuery('')}>
                 <Trash2 size={14} /> {t('common.clear')}
               </button>
-              <button className="btn-primary btn-sm" onClick={handleRun} disabled={running || !query.trim()}>
+              {hasPermission('sql_editor', 'create') && <button className="btn-primary btn-sm" onClick={handleRun} disabled={running || !query.trim()}>
                 <Play size={14} /> {running ? t('common.running') : t('admin.run')}
-              </button>
+              </button>}
             </div>
           </div>
           <textarea

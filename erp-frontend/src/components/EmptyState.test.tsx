@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
+import { vi } from 'vitest';
 import EmptyState from './EmptyState';
 
 describe('EmptyState', () => {
@@ -21,7 +22,7 @@ describe('EmptyState', () => {
   });
 
   it('renders as table row when asTableRow is true', () => {
-    const { container } = render(<EmptyState title="No items" description="None." asTableRow />);
+    const { container } = render(<table><tbody><EmptyState title="No items" description="None." asTableRow /></tbody></table>);
     expect(container.querySelector('tr')).toBeInTheDocument();
     expect(container.querySelector('td')).toHaveAttribute('colspan', '99');
   });

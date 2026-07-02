@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "erp-whatsapp-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "SUPABASE_URL": "https://epxxsgensnimdskcmvdj.supabase.co",
+    "WHATSAPP_API_VERSION": "v22.0",
+    "WHATSAPP_BASE_URL": "https://graph.facebook.com"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

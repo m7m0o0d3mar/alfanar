@@ -173,23 +173,77 @@ VALUES ('YOUR-USER-ID', 'THE-PROJECT-ID', 'owner');
 ```
 ERP/
 ├── database/                    # SQL schema files (run in order)
-│   ├── 001-005_*.sql           # Core + Business + RLS
-│   └── 999_full_migration.sql  # Complete schema (run this)
+│   ├── 001-055_*.sql           # Core + Business + RLS + Features
+│   └── 999_full_migration.sql  # Complete schema
 ├── erp-frontend/                # React + Vite + Tailwind
 │   ├── src/
-│   │   ├── components/         # Shared UI components
+│   │   ├── components/         # Shared UI components (NotificationBell, etc.)
 │   │   ├── context/            # Auth, Settings, Theme state
-│   │   ├── hooks/              # Custom React hooks
+│   │   ├── hooks/              # Custom React hooks (useNotifications, etc.)
 │   │   ├── i18n/               # Arabic/English translation
 │   │   ├── pages/              # All pages + System Designer
-│   │   ├── services/           # Supabase API services
+│   │   ├── services/           # Supabase API + AI Analytics services
 │   │   └── types/              # TypeScript types
+│   ├── src/test/               # Unit tests (Vitest + Playwright)
 │   └── public/
+├── scripts/                     # Automation scripts (migrations, etc.)
 ├── supabase/
 │   ├── functions/              # Edge Functions (WIR, KPI, AI, Notifications)
-│   └── config.toml
+│   ├── config.toml
+│   └── migrations/
 └── README_AR.md                # Arabic instructions
 ```
+
+---
+
+## New Features (Phase 5-7)
+
+### Procurement Enhancement
+| Feature | Tables |
+|---------|--------|
+| Purchase Requisitions (PR) with approval workflow | `purchase_requisitions`, `pr_line_items` |
+| Sourcing / RFQ Events with bid management | `sourcing_events`, `sourcing_bids` |
+| Contract Management | `procurement_contracts` |
+| Supplier Performance Evaluations (5-dimension scoring) | `supplier_evaluations` |
+| Procurement Budgets with utilization tracking | `procurement_budgets` |
+| Catalog Items with supplier pricing | `catalog_items` |
+| Hierarchical Categories | `procurement_categories` |
+
+### Finance & Accounting
+| Feature | Tables |
+|---------|--------|
+| Chart of Accounts (hierarchical) | `chart_of_accounts` |
+| Journal Entries with double-entry | `journal_entries`, `journal_entry_lines` |
+| Expense Claims with receipt upload | `expense_claims`, `expense_claim_items` |
+| Multi-Currency support | `currency_rates` |
+| VAT / Tax Rate management | `tax_rates` |
+| Saved Financial Reports | `saved_reports` |
+| Enhanced POs (tax, discount, payment terms) | Added columns to `purchase_orders` |
+
+### HR Enhancement
+| Feature | Tables |
+|---------|--------|
+| Department / Org Structure | `departments` |
+| Employee Contracts (full salary breakdown) | `employee_contracts` |
+| Shift Management | `shift_definitions`, `employee_shifts` |
+| Employee Advances / Loans with installments | `employee_advances`, `advance_installments` |
+| Employee Documents (ID, certificates, etc.) | `employee_documents` |
+| Enhanced Employee Profiles | Added columns to `user_profiles` |
+
+### Notification System
+| Feature | Tables |
+|---------|--------|
+| In-App Notifications (real-time via Supabase) | `notifications` |
+| Notification Preferences per user | `notification_preferences` |
+| Status-change triggers (automatic) | `notify_status_change()` function |
+| Priority & channel management | Enum `notification_channel`, `notification_priority` |
+
+### Document Management
+| Feature | Tables |
+|---------|--------|
+| File Uploads with metadata | `file_uploads` |
+| Hierarchical Document Folders | `document_folders` |
+| Tags, MIME types, public/private | - |
 
 ---
 

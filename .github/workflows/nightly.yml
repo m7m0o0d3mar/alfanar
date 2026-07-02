@@ -1,0 +1,171 @@
+name: Nightly Full Suite
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  full-e2e:
+    name: Full E2E (All Projects)
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: erp-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: erp-frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run all Playwright tests
+        run: npx playwright test --project=all --reporter=html,json,junit
+        env:
+          BASE_URL: ${{ vars.BASE_URL || 'http://localhost:5173' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-full-e2e
+          path: erp-frontend/tests/reports/
+          retention-days: 30
+
+  visual-regression:
+    name: Visual Regression
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: erp-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: erp-frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run visual regression tests
+        run: npx playwright test --project=visual --project=visual-mobile --reporter=html,json
+        env:
+          BASE_URL: ${{ vars.BASE_URL || 'http://localhost:5173' }}
+          PWTEST_UPDATE_SNAPSHOTS: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-regression-diffs
+          path: |
+            erp-frontend/tests/reports/
+            erp-frontend/tests/e2e/suites/visual/__screenshots__/
+          retention-days: 30
+
+  accessibility:
+    name: Accessibility Audit
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: erp-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: erp-frontend/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run accessibility tests
+        continue-on-error: true
+        run: npx playwright test --project=accessibility --reporter=html,json
+        env:
+          BASE_URL: ${{ vars.BASE_URL || 'http://localhost:5173' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accessibility-results
+          path: erp-frontend/tests/reports/
+          retention-days: 30
+
+  performance:
+    name: Performance Baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install k6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnupg
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+      - name: Smoke load test
+        run: k6 run tests/performance/smoke-load.js --summary-export=tests/reports/k6-smoke-summary.json
+        env:
+          BASE_URL: ${{ vars.BASE_URL || 'https://your-app.pages.dev' }}
+      - name: Average load test
+        if: always()
+        run: k6 run tests/performance/average-load.js --summary-export=tests/reports/k6-average-summary.json
+        env:
+          BASE_URL: ${{ vars.BASE_URL || 'https://your-app.pages.dev' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-results
+          path: erp-frontend/tests/reports/k6-*.json
+          retention-days: 30
+
+  generate-report:
+    name: Generate Nightly Report
+    needs: [full-e2e, visual-regression, accessibility, performance]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: nightly-artifacts/
+      - name: Create summary report
+        run: |
+          echo "# Nightly Test Report - $(date -u)" > nightly-report.md
+          echo "" >> nightly-report.md
+          echo "## Summary" >> nightly-report.md
+          echo "| Layer | Status | Details |" >> nightly-report.md
+          echo "|-------|--------|---------|" >> nightly-report.md
+          echo "| E2E Full Suite | ✅/❌ | [View Report](./nightly-artifacts/nightly-full-e2e/) |" >> nightly-report.md
+          echo "| Visual Regression | ✅/❌ | [View Diffs](./nightly-artifacts/visual-regression-diffs/) |" >> nightly-report.md
+          echo "| Accessibility | ✅/❌ | [View Report](./nightly-artifacts/accessibility-results/) |" >> nightly-report.md
+          echo "| Performance | ✅/❌ | [View Results](./nightly-artifacts/performance-results/) |" >> nightly-report.md
+          echo "" >> nightly-report.md
+          echo "---" >> nightly-report.md
+          echo "_Generated at $(date -u)_" >> nightly-report.md
+          cat nightly-report.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-report-md
+          path: nightly-report.md
+      - name: Post report to issues
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('nightly-report.md', 'utf8');
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Nightly Test Report - ${new Date().toISOString().split('T')[0]}`,
+              body: report,
+              labels: ['nightly-report', 'test-automation'],
+            });
