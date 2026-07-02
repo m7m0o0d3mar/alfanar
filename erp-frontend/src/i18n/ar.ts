@@ -970,5 +970,9 @@ export const ar: TranslationKeys = {
     no_floor_plan: 'لا يوجد مخطط طابق',
     login: 'تسجيل الدخول',
     footer: '© 2026 جميع الحقوق محفوظة.',
+    map_title: 'خريطة العقارات',
+    map_search_placeholder: 'بحث عن مشاريع...',
+    view_properties: 'عرض العقارات',
+    no_results: 'لا توجد مشاريع مطابقة',
   },
 };

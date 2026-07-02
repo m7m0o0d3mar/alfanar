@@ -69,6 +69,7 @@ const DynamicPage = lazy(() => import('./pages/DynamicPage'));
 const FormPage = lazy(() => import('./pages/FormPage'));
 const PublicPropertiesPage = lazy(() => import('./pages/PublicPropertiesPage'));
 const PublicPropertyDetailPage = lazy(() => import('./pages/PublicPropertyDetailPage'));
+const PublicMapPage = lazy(() => import('./pages/PublicMapPage'));
 
 function LazyPage({ Component }: { Component: React.LazyExoticComponent<React.ComponentType> }) {
   return (
@@ -140,6 +141,7 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/public-properties" element={<LazyPage Component={PublicPropertiesPage} />} />
         <Route path="/public-properties/:id" element={<LazyPage Component={PublicPropertyDetailPage} />} />
+        <Route path="/public-map" element={<LazyPage Component={PublicMapPage} />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -222,6 +224,7 @@ export default function App() {
         <Route path="/admin/docs" element={<LazyPage Component={DocsPage} />} />
         <Route path="/public-properties" element={<LazyPage Component={PublicPropertiesPage} />} />
         <Route path="/public-properties/:id" element={<LazyPage Component={PublicPropertyDetailPage} />} />
+        <Route path="/public-map" element={<LazyPage Component={PublicMapPage} />} />
         <Route path="*" element={<LazyPage Component={DynamicPage} />} />
         </Route>
       </Route>

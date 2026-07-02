@@ -968,6 +968,10 @@ export const en = {
     no_floor_plan: 'No floor plan available',
     login: 'Login',
     footer: '© 2026 All rights reserved.',
+    map_title: 'Property Map',
+    map_search_placeholder: 'Search projects...',
+    view_properties: 'View Properties',
+    no_results: 'No matching projects found',
   },
 };
 

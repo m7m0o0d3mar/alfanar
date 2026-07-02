@@ -414,6 +414,8 @@ function Walkthrough3DView({
   const [bldgIndex, setBldgIndex] = useState(0);
   const [floorIndex, setFloorIndex] = useState(0);
   const keysRef = useRef<Set<string>>(new Set());
+  const [playerPos, setPlayerPos] = useState({ x: 0, z: 0 });
+  const [rooms, setRooms] = useState<{ label: string; sx: number; sz: number; color: string }[]>([]);
 
   useEffect(() => {
     if (selectedBldg && buildings.length > 0) {
@@ -452,8 +454,6 @@ function Walkthrough3DView({
         renderer.toneMappingExposure = 1.0;
         container.appendChild(renderer.domElement);
 
-        // No orbit controls in walkthrough - use WASD instead
-        // Lighting
         const ambient = new T.AmbientLight(0x404060, 0.5);
         scene.add(ambient);
         const dirLight = new T.DirectionalLight(0xffffff, 1.5);
@@ -464,7 +464,6 @@ function Walkthrough3DView({
         warmLight.position.set(-5, 10, -5);
         scene.add(warmLight);
 
-        // Floor
         const floorGeo = new T.PlaneGeometry(30, 30);
         const floorMat = new T.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.9, metalness: 0 });
         const floor = new T.Mesh(floorGeo, floorMat);
@@ -473,18 +472,15 @@ function Walkthrough3DView({
         floor.receiveShadow = true;
         scene.add(floor);
 
-        // Grid
         const gridHelper = new T.GridHelper(30, 20, 0x374151, 0x374151);
         gridHelper.position.y = 0;
         scene.add(gridHelper);
 
-        // Build simple room enclosure from first building
         const bldg = buildings[bldgIndex];
         const bFloors = floors.filter(f => f.building_id === bldg.id).sort((a, b) => a.floor_number - b.floor_number);
         const curFloor = bFloors[floorIndex] || bFloors[0];
         const roomW = 6, roomD = 5, roomH = 3;
 
-        // Walls
         const wallMat = new T.MeshStandardMaterial({ color: 0x2d3748, roughness: 0.6, metalness: 0.1, side: T.DoubleSide });
         const wallPositions = [
           { pos: [0, roomH / 2, -roomD / 2], size: [roomW, roomH, 0.1] },
@@ -500,36 +496,40 @@ function Walkthrough3DView({
           scene.add(wall);
         }
 
-        // Ceiling
         const ceilMat = new T.MeshStandardMaterial({ color: 0x1a202c, roughness: 0.8 });
         const ceil = new T.Mesh(new T.BoxGeometry(roomW, 0.05, roomD), ceilMat);
         ceil.position.set(0, roomH, 0);
         scene.add(ceil);
 
-        // Unit info labels as floating sprites
+        const teleportTargets: { mesh: any; targetPos: any; label: string }[] = [];
+        const roomList: { label: string; sx: number; sz: number; color: string }[] = [];
+
         if (curFloor?.room_data) {
-          const rooms = curFloor.room_data as RoomHotspot[];
-          rooms.forEach((r, i) => {
+          const rData = curFloor.room_data as RoomHotspot[];
+          rData.forEach((r, i) => {
             const cx = (Math.max(...r.polygon.map(p => p[0])) + Math.min(...r.polygon.map(p => p[0]))) / 2;
             const cy = (Math.max(...r.polygon.map(p => p[1])) + Math.min(...r.polygon.map(p => p[1]))) / 2;
             const sx = (cx / 800 - 0.5) * roomW * 0.8;
             const sz = (cy / 600 - 0.5) * roomD * 0.8;
 
             const canvas = document.createElement('canvas');
-            const s = 256;
-            canvas.width = s; canvas.height = s;
+            const sc = 256;
+            canvas.width = sc; canvas.height = sc;
             const ctx = canvas.getContext('2d')!;
             ctx.fillStyle = 'rgba(0,0,0,0.7)';
-            ctx.roundRect(8, 8, s - 16, s - 16, 12);
+            ctx.roundRect(8, 8, sc - 16, sc - 16, 12);
             ctx.fill();
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 16px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(r.name_en, s / 2, 50);
+            ctx.fillText(r.name_en, sc / 2, 50);
             ctx.font = '13px sans-serif';
             ctx.fillStyle = '#94a3b8';
-            if (r.area_sqm) ctx.fillText(`${r.area_sqm} m²`, s / 2, 85);
-            if (r.unit_code) { ctx.fillStyle = '#60a5fa'; ctx.fillText(r.unit_code, s / 2, 120); }
+            if (r.area_sqm) ctx.fillText(`${r.area_sqm} m²`, sc / 2, 85);
+            if (r.unit_code) { ctx.fillStyle = '#60a5fa'; ctx.fillText(r.unit_code, sc / 2, 120); }
+            ctx.fillStyle = '#a78bfa';
+            ctx.font = '9px sans-serif';
+            ctx.fillText('Click to teleport', sc / 2, 200);
 
             const tex = new T.CanvasTexture(canvas);
             const spriteMat = new T.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
@@ -538,7 +538,6 @@ function Walkthrough3DView({
             sprite.scale.set(1.5, 1.5, 1);
             scene.add(sprite);
 
-            // Optional floor highlight
             const rColor = r.color || '#6366f1';
             const rHex = parseInt(rColor.replace('#', ''), 16);
             const hGeo = new T.PlaneGeometry(0.5, 0.5);
@@ -547,10 +546,20 @@ function Walkthrough3DView({
             hMesh.rotation.x = -Math.PI / 2;
             hMesh.position.set(sx, 0.02, sz);
             scene.add(hMesh);
+
+            const tpMat = new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthTest: false });
+            const tpMesh = new T.Mesh(new T.PlaneGeometry(0.8, 0.8), tpMat);
+            tpMesh.rotation.x = -Math.PI / 2;
+            tpMesh.position.set(sx, 0.05, sz);
+            scene.add(tpMesh);
+            teleportTargets.push({ mesh: tpMesh, targetPos: new T.Vector3(sx, 1.6, sz + 1.5), label: r.name_en });
+
+            roomList.push({ label: r.name_en, sx, sz, color: rColor });
           });
         }
 
-        // Label for current floor
+        setRooms(roomList);
+
         const lCanvas = document.createElement('canvas');
         lCanvas.width = 512; lCanvas.height = 64;
         const lCtx = lCanvas.getContext('2d')!;
@@ -568,9 +577,10 @@ function Walkthrough3DView({
         lSprite.scale.set(5, 0.6, 1);
         scene.add(lSprite);
 
-        // WASD + arrow controls
         const direction = new T.Vector3();
         const euler = new T.Euler(0, 0, 0, 'YXZ');
+        const vel = new T.Vector3();
+        const targetVel = new T.Vector3();
 
         document.addEventListener('keydown', (e) => keysRef.current.add(e.key.toLowerCase()));
         document.addEventListener('keyup', (e) => keysRef.current.delete(e.key.toLowerCase()));
@@ -581,36 +591,41 @@ function Walkthrough3DView({
           const dt = Math.min(clock.getDelta(), 0.05);
           const speed = 3.0;
 
-          // Get camera direction
           euler.setFromQuaternion(camera.quaternion);
           const forward = new T.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
           const right = new T.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
           forward.y = 0; forward.normalize();
           right.y = 0; right.normalize();
 
-          direction.set(0, 0, 0);
+          targetVel.set(0, 0, 0);
           const keys = keysRef.current;
-          if (keys.has('w') || keys.has('arrowup')) direction.add(forward);
-          if (keys.has('s') || keys.has('arrowdown')) direction.sub(forward);
-          if (keys.has('a') || keys.has('arrowleft')) direction.sub(right);
-          if (keys.has('d') || keys.has('arrowright')) direction.add(right);
+          if (keys.has('w') || keys.has('arrowup')) targetVel.add(forward);
+          if (keys.has('s') || keys.has('arrowdown')) targetVel.sub(forward);
+          if (keys.has('a') || keys.has('arrowleft')) targetVel.sub(right);
+          if (keys.has('d') || keys.has('arrowright')) targetVel.add(right);
 
-          if (direction.length() > 0) {
-            direction.normalize();
-            camera.position.add(direction.multiplyScalar(speed * dt));
+          if (targetVel.length() > 0) {
+            targetVel.normalize();
+            vel.lerp(targetVel, dt * 8);
+          } else {
+            vel.lerp(new T.Vector3(), dt * 8);
           }
 
-          // Keep within bounds
+          if (vel.length() > 0.001) {
+            camera.position.add(vel.clone().multiplyScalar(speed * dt));
+          }
+
           camera.position.x = Math.max(-roomW / 2 + 0.3, Math.min(roomW / 2 - 0.3, camera.position.x));
           camera.position.z = Math.max(-roomD / 2 + 0.3, Math.min(roomD / 2 - 0.3, camera.position.z));
           camera.position.y = 1.6;
+
+          setPlayerPos({ x: camera.position.x, z: camera.position.z });
 
           renderer.render(scene, camera);
           animId = requestAnimationFrame(animate);
         };
         animate();
 
-        // Mouse look
         let isPointerLocked = false;
         const onPointerLockChange = () => { isPointerLocked = document.pointerLockElement === renderer.domElement; };
         document.addEventListener('pointerlockchange', onPointerLockChange);
@@ -627,11 +642,32 @@ function Walkthrough3DView({
         document.addEventListener('mousemove', onMouseMove);
 
         const onClickCanvas = () => {
-          if (!isPointerLocked) renderer.domElement.requestPointerLock();
+          if (!isPointerLocked) {
+            renderer.domElement.requestPointerLock();
+            return;
+          }
+          const raycaster = new T.Raycaster();
+          raycaster.setFromCamera(new T.Vector2(0, 0), camera);
+          const intersects = raycaster.intersectObjects(teleportTargets.map(t => t.mesh));
+          if (intersects.length > 0) {
+            const hit = teleportTargets.find(t => t.mesh === intersects[0].object);
+            if (hit) {
+              const startPos = camera.position.clone();
+              const endPos = hit.targetPos.clone();
+              let t2 = 0;
+              const tpAnim = () => {
+                t2 += 0.05;
+                if (t2 >= 1) { camera.position.copy(endPos); return; }
+                const ease = 1 - Math.pow(1 - t2, 3);
+                camera.position.lerpVectors(startPos, endPos, ease);
+                requestAnimationFrame(tpAnim);
+              };
+              tpAnim();
+            }
+          }
         };
         renderer.domElement.addEventListener('click', onClickCanvas);
 
-        // Resize
         const onResize = () => {
           if (!containerRef.current) return;
           const w2 = containerRef.current.clientWidth || 600;
@@ -678,46 +714,60 @@ function Walkthrough3DView({
       <div className="flex items-center justify-between px-2 py-1 border-b shrink-0" style={{ borderColor: 'var(--color-border)' }}>
         <div className="flex items-center gap-2 text-xs">
           <Camera size={14} />
-          <span>Walkthrough: <strong>{bldg.name_en}</strong></span>
+          <span>Walkthrough</span>
         </div>
         <div className="flex items-center gap-1">
-          {/* Building navigation */}
-          {buildings.length > 1 && (
-            <div className="flex items-center gap-1 mr-2">
-              <button className="btn-xs btn-secondary" onClick={() => {
-                const next = Math.max(0, bldgIndex - 1);
-                setBldgIndex(next);
-                setFloorIndex(0);
-                if (onBldgChange) onBldgChange(buildings[next].id);
-              }} disabled={bldgIndex === 0}>
-                <ChevronLeft size={12} />
-              </button>
-              <span className="text-[10px] font-mono px-1">{bldg.name_en}</span>
-              <button className="btn-xs btn-secondary" onClick={() => {
-                const next = Math.min(buildings.length - 1, bldgIndex + 1);
-                setBldgIndex(next);
-                setFloorIndex(0);
-                if (onBldgChange) onBldgChange(buildings[next].id);
-              }} disabled={bldgIndex >= buildings.length - 1}>
-                <ChevronLeft size={12} className="rotate-180" />
-              </button>
-            </div>
-          )}
-          <span className="text-[10px] text-gray-500">Click to look · WASD to move</span>
+          <select className="select text-xs" style={{ padding: '0.15rem 0.4rem', maxWidth: 140 }}
+            value={bldgIndex} onChange={(e) => {
+              const idx = parseInt(e.target.value);
+              if (isNaN(idx) || idx === bldgIndex) return;
+              setBldgIndex(idx);
+              setFloorIndex(0);
+              if (onBldgChange) onBldgChange(buildings[idx].id);
+            }}>
+            {buildings.map((b, i) => (
+              <option key={b.id} value={i}>{b.name_en}</option>
+            ))}
+          </select>
           {bFloors.length > 1 && (
-            <div className="flex items-center gap-1 ml-2">
-              <button className="btn-xs btn-secondary" onClick={() => setFloorIndex(i => Math.max(0, i - 1))} disabled={floorIndex === 0}>
-                <ChevronLeft size={12} />
-              </button>
-              <span className="text-[10px] font-mono px-1">Floor {bFloors[floorIndex]?.floor_number || 1}/{bFloors.length}</span>
-              <button className="btn-xs btn-secondary" onClick={() => setFloorIndex(i => Math.min(bFloors.length - 1, i + 1))} disabled={floorIndex >= bFloors.length - 1}>
-                <ChevronLeft size={12} className="rotate-180" />
-              </button>
-            </div>
+            <select className="select text-xs" style={{ padding: '0.15rem 0.4rem', maxWidth: 100 }}
+              value={floorIndex} onChange={(e) => {
+                const idx = parseInt(e.target.value);
+                if (!isNaN(idx)) setFloorIndex(idx);
+              }}>
+              {bFloors.map((f, i) => (
+                <option key={f.id} value={i}>Floor {f.floor_number}{f.name_en ? ` - ${f.name_en}` : ''}</option>
+              ))}
+            </select>
           )}
+          <span className="text-[10px] text-gray-500 ml-1">Click to look · WASD to move</span>
         </div>
       </div>
-      <div ref={containerRef} className="flex-1" style={{ minHeight: 200 }} />
+      <div ref={containerRef} className="flex-1 relative" style={{ minHeight: 200 }}>
+        <div className="absolute top-2 right-2 w-24 h-24 rounded-lg overflow-hidden border-2 z-10"
+          style={{ borderColor: 'var(--color-border)', background: 'rgba(17,24,39,0.85)' }}>
+          <div className="relative w-full h-full">
+            {rooms.map((r, i) => (
+              <div key={i}
+                className="absolute rounded-sm opacity-50"
+                style={{
+                  left: `${((r.sx + 3) / 6) * 100}%`,
+                  top: `${((r.sz + 2.5) / 5) * 100}%`,
+                  width: '16%', height: '16%',
+                  backgroundColor: r.color || '#6366f1',
+                }}
+              />
+            ))}
+            <div className="absolute w-2 h-2 rounded-full bg-red-500 shadow-lg z-10 transition-all duration-150"
+              style={{
+                left: `${((playerPos.x + 3) / 6) * 100}%`,
+                top: `${((playerPos.z + 2.5) / 5) * 100}%`,
+                transform: 'translate(-50%, -50%)',
+              }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1407,10 +1457,48 @@ export default function MapsPage() {
         </div>
         <div className="flex items-center gap-1.5">
           <div className="relative">
-            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" placeholder="Search..." className="input text-xs"
-              style={{ width: '120px', padding: '0.25rem 0.5rem 0.25rem 1.5rem' }}
-              value={search} onChange={e => setSearch(e.target.value)} />
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 z-10" />
+            <input type="text" placeholder="Quick search..." className="input text-xs"
+              style={{ width: '130px', padding: '0.25rem 0.5rem 0.25rem 1.5rem' }}
+              value={search} onChange={e => setSearch(e.target.value)}
+              onFocus={(e) => { if (e.target.value) setSearch(e.target.value); }} />
+            {search && (() => {
+              const q = search.toLowerCase();
+              const results: { type: string; id: string; label: string; parent: string }[] = [];
+              for (const p of projects) {
+                if (p.name_en.toLowerCase().includes(q) || p.project_code?.toLowerCase().includes(q))
+                  results.push({ type: 'project', id: p.id, label: `${p.project_code} - ${p.name_en}`, parent: '' });
+              }
+              for (const b of blocks) {
+                if (b.name_en?.toLowerCase().includes(q) || b.block_code?.toLowerCase().includes(q)) {
+                  const pp = projects.find(x => x.id === b.project_id);
+                  results.push({ type: 'block', id: b.id, label: `${b.block_code || ''} ${b.name_en}`, parent: pp ? pp.name_en : '' });
+                }
+              }
+              for (const b of buildings) {
+                if (b.name_en?.toLowerCase().includes(q)) {
+                  const pp = projects.find(x => x.id === b.project_id);
+                  results.push({ type: 'building', id: b.id, label: b.name_en, parent: pp ? pp.name_en : '' });
+                }
+              }
+              const top = results.slice(0, 8);
+              return top.length > 0 ? (
+                <div className="absolute top-full left-0 right-0 mt-1 rounded-lg overflow-hidden shadow-xl z-[9999]"
+                  style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                  {top.map((r, i) => (
+                    <div key={`${r.type}-${r.id}`}
+                      className="flex items-center gap-1.5 px-2 py-1.5 text-xs cursor-pointer hover:bg-white/10 transition-colors"
+                      onMouseDown={(e) => { e.preventDefault(); handleSelect(r.type, r.id); setSearch(''); }}>
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{
+                        background: r.type === 'project' ? '#6366f1' : r.type === 'block' ? '#f59e0b' : r.type === 'building' ? '#10b981' : '#06b6d4'
+                      }} />
+                      <span className="truncate font-medium">{r.label}</span>
+                      {r.parent && <span className="text-[9px] opacity-50 truncate ml-auto">{r.parent}</span>}
+                    </div>
+                  ))}
+                </div>
+              ) : null;
+            })()}
           </div>
           <select className="select text-xs" style={{ padding: '0.25rem 0.5rem' }}
             value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
