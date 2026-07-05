@@ -7,8 +7,9 @@ import { exportCSV } from '../utils/csv';
 import CsvImportModal from '../components/CsvImportModal';
 import { type SyncConfig } from '../services/syncService';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Download, Upload, Edit3, Search, Eye } from 'lucide-react';
+import { Plus, Download, Upload, Edit3, Search, Eye, Trash2 } from 'lucide-react';
 import Pagination from '../components/Pagination';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 interface Unit {
   id: string; project_id: string; unit_code: string; unit_type: string;
@@ -69,6 +70,7 @@ export default function UnitsPage() {
   const [formError, setFormError] = useState('');
   const [showImport, setShowImport] = useState(false);
   const [detailUnit, setDetailUnit] = useState<Unit | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
@@ -97,6 +99,18 @@ export default function UnitsPage() {
       toast.error('Failed to load data.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function deleteUnit(id: string) {
+    try {
+      const { error } = await supabase.from('units').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Unit deleted');
+      setConfirmDelete(null);
+      load();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
     }
   }
 
@@ -263,6 +277,11 @@ export default function UnitsPage() {
                       <button className="btn-sm btn-secondary ms-1" onClick={(e) => { e.stopPropagation(); setEditing(u); setForm({ ...defaultForm, project_id: u.project_id, unit_code: u.unit_code, unit_type: u.unit_type, floor_number: u.floor_number, area_sqm: u.area_sqm, bedrooms: u.bedrooms, bathrooms: u.bathrooms, status: u.status, price: u.price, handover_date: u.handover_date, zone: u.zone, block: u.block, unit_model: u.unit_model, land_area: u.land_area, building_price_per_m2: u.building_price_per_m2, land_price_per_m2: u.land_price_per_m2, discount_land_pct: u.discount_land_pct, discount_bua_pct: u.discount_bua_pct, salesperson_id: u.salesperson_id, commission_id: u.commission_id, sale_type: u.sale_type, notes: u.notes, update_date: u.update_date }); setFormError(''); setShowForm(true); }}>
                         <Edit3 size={14} />
                       </button>
+                      {hasPermission('units', 'delete') && (
+                        <button className="btn-sm btn-secondary ms-1 text-red-500" onClick={(e) => { e.stopPropagation(); setConfirmDelete(u.id); }}>
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                   );
@@ -402,6 +421,7 @@ export default function UnitsPage() {
         </div>
       )}
       {showImport && <CsvImportModal moduleName="Units" config={importConfig} onClose={() => { setShowImport(false); load(); }} />}
+      {confirmDelete && <ConfirmDialog title="Delete Unit" message="Delete this unit? This action cannot be undone." onConfirm={() => deleteUnit(confirmDelete)} onCancel={() => setConfirmDelete(null)} />}
     </div>
   );
 }

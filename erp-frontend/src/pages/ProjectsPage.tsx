@@ -6,10 +6,12 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useT } from '../hooks/useTranslation';
 import { supabase } from '../services/supabase';
-import { Search, Plus, Filter, Building2, X, LayoutGrid, Table, Map as MapIcon, MapPin, ExternalLink, Check, DollarSign, Calendar, Clock, Activity, CheckCircle, BarChart3 } from 'lucide-react';
+import { Search, Plus, Filter, Building2, X, LayoutGrid, Table, Map as MapIcon, MapPin, ExternalLink, Check, DollarSign, Calendar, Clock, Activity, CheckCircle, BarChart3, Trash2 } from 'lucide-react';
 import { formatDate } from '../utils/date';
 import Pagination from '../components/Pagination';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -67,6 +69,7 @@ export default function ProjectsPage() {
   const { user, hasPermission } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const t = useT();
   const [page, setPage] = useState(1);
   const pageSize = 25;
   const [viewMode, setViewMode] = useState<'table' | 'cards' | 'map'>('table');
@@ -77,6 +80,7 @@ export default function ProjectsPage() {
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterType, setFilterType] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectForm>({
     project_code: '', name_en: '', name_ar: '', project_type: 'residential',
     start_date: '', end_date: '', location: '',
@@ -140,6 +144,18 @@ export default function ProjectsPage() {
       toast.error(msg);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteProject(id: string) {
+    try {
+      const { error } = await supabase.from('projects').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Project deleted');
+      setConfirmDelete(null);
+      reload();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
     }
   }
 
@@ -255,6 +271,7 @@ export default function ProjectsPage() {
                   <th>Budget</th>
                   <th>Progress</th>
                   <th>Timeline</th>
+                  <th>{t('common.actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -268,7 +285,7 @@ export default function ProjectsPage() {
                   ))
                 ) : filteredProjects.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-20 text-gray-400">
+                    <td colSpan={8} className="text-center py-20 text-gray-400">
                       <Building2 size={48} className="mx-auto mb-3 opacity-30" />
                       <p>No projects match your filters.</p>
                     </td>
@@ -306,6 +323,13 @@ export default function ProjectsPage() {
                       </td>
                       <td className="text-xs text-gray-500">
                         {p.start_date ? formatDate(p.start_date) : '?'} &rarr; {p.end_date ? formatDate(p.end_date) : '?'}
+                      </td>
+                      <td>
+                        {hasPermission('projects', 'delete') && (
+                          <button className="btn-sm btn-secondary text-red-500" onClick={(e) => { e.stopPropagation(); setConfirmDelete(p.id); }}>
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -505,6 +529,7 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
+      {confirmDelete && <ConfirmDialog title="Delete Project" message="Delete this project and all related data (units, geometries, etc.)? This cannot be undone." onConfirm={() => deleteProject(confirmDelete)} onCancel={() => setConfirmDelete(null)} />}
     </div>
   );
 }
