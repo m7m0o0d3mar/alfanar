@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react';
-import { Upload, FileText, Grid3x3, Type, Copy, X } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Upload, FileText, Grid3x3, Type, Copy, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { geometryImportsApi } from '../services/mapsApi';
+import { projectGeometriesApi } from '../services/api';
 
 interface Props {
   projectId: string;
@@ -9,21 +10,50 @@ interface Props {
   targetLevel: 'site' | 'building' | 'floor' | 'unit';
   onClose: () => void;
   onImported: () => void;
+  existingGeometries?: { id: string; label_en?: string; label_ar?: string; geometry_type: string }[];
 }
 
-export default function GeometryInputPanel({ projectId, parentId, targetLevel, onClose, onImported }: Props) {
+function isValidGeoJSON(obj: any): boolean {
+  if (!obj || typeof obj !== 'object') return false;
+  if (obj.type === 'FeatureCollection') return Array.isArray(obj.features) && obj.features.length > 0;
+  if (obj.type === 'Feature') return !!obj.geometry;
+  return ['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon', 'GeometryCollection'].includes(obj.type);
+}
+
+function coordsToGeoJSON(lat: number, lng: number, widthMeters: number, heightMeters: number): any {
+  const latPerM = 1 / 111320;
+  const lngPerM = 1 / (111320 * Math.cos(lat * Math.PI / 180));
+  const w = widthMeters * lngPerM / 2;
+  const h = heightMeters * latPerM / 2;
+  return {
+    type: 'Polygon',
+    coordinates: [[
+      [lng - w, lat - h],
+      [lng + w, lat - h],
+      [lng + w, lat + h],
+      [lng - w, lat + h],
+      [lng - w, lat - h],
+    ]],
+  };
+}
+
+export default function GeometryInputPanel({ projectId, parentId, targetLevel, onClose, onImported, existingGeometries }: Props) {
   const toast = useToast();
   const [tab, setTab] = useState<'geojson' | 'csv' | 'form' | 'template'>('geojson');
   const [geoJsonText, setGeoJsonText] = useState('');
   const [csvText, setCsvText] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [result, setResult] = useState<{ success: number; errors: string[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // Form inputs
   const [formData, setFormData] = useState({
     label_en: '', label_ar: '', lat: '24.86', lng: '46.72',
-    width: '100', height: '80', rotation: '0',
+    width: '50', height: '40',
   });
+  const [templateSource, setTemplateSource] = useState('');
+
+  useEffect(() => {
+    setResult(null);
+  }, [tab]);
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -43,143 +73,183 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
     e.target.value = '';
   }
 
-  function parseAndCreateGeometry(rawCoords: [number, number][]): Record<string, unknown> {
-    if (rawCoords.length < 3) return {};
-    const closed = [...rawCoords, rawCoords[0]];
-    return {
-      type: 'Polygon',
-      coordinates: [closed.map(([lat, lng]) => [lng, lat])],
-    };
+  function formatGeoJson() {
+    try {
+      const parsed = JSON.parse(geoJsonText);
+      setGeoJsonText(JSON.stringify(parsed, null, 2));
+    } catch { }
   }
 
   async function processGeoJson() {
     setProcessing(true);
+    setResult(null);
+    const errors: string[] = [];
+    let success = 0;
+
     try {
       let parsed: any;
       try { parsed = JSON.parse(geoJsonText); }
-      catch { toast.error('Invalid JSON'); setProcessing(false); return; }
+      catch { toast.error('Invalid JSON syntax'); setProcessing(false); return; }
 
-      const features = parsed.type === 'FeatureCollection' ? parsed.features : [parsed];
-      let count = 0;
+      if (!isValidGeoJSON(parsed)) {
+        toast.error('Not a valid GeoJSON object (need Feature, FeatureCollection, or geometry)');
+        setProcessing(false);
+        return;
+      }
 
-      for (const f of features) {
-        const geom = f.geometry || parsed;
-        const label = f.properties?.label_en || f.properties?.name || `${targetLevel}_${Date.now()}_${count}`;
-        const { error } = await supabase.from('project_geometries').insert({
-          project_id: projectId,
-          parent_id: parentId || null,
-          geometry_type: targetLevel,
-          label_en: label,
-          geometry: geom,
-          properties: f.properties || {},
-          level: targetLevel === 'site' ? 0 : targetLevel === 'building' ? 1 : targetLevel === 'floor' ? 2 : 3,
-          sort_order: count,
-          status: 'active',
-        });
-        if (!error) count++;
+      const features = parsed.type === 'FeatureCollection' ? parsed.features
+        : parsed.type === 'Feature' ? [parsed]
+        : [{ type: 'Feature', geometry: parsed, properties: {} }];
+
+      for (let i = 0; i < features.length; i++) {
+        const f = features[i];
+        const geom = f.geometry;
+        if (!geom) { errors.push(`Feature ${i + 1}: missing geometry`); continue; }
+
+        const label = f.properties?.label_en || f.properties?.name || f.properties?.unit_code || `${targetLevel}_${i + 1}`;
+        const labelAr = f.properties?.label_ar || null;
+
+        try {
+          await projectGeometriesApi.upsert({
+            project_id: projectId,
+            parent_id: parentId || undefined,
+            geometry_type: targetLevel,
+            label_en: label,
+            label_ar: labelAr || undefined,
+            geometry: geom,
+            properties: f.properties || {},
+            level: ['site', 'building', 'floor', 'unit'].indexOf(targetLevel),
+            sort_order: i,
+            status: 'active',
+          });
+          success++;
+        } catch (err: any) {
+          errors.push(`Feature ${i + 1} (${label}): ${err.message || 'DB error'}`);
+        }
       }
 
       await geometryImportsApi.create({
         project_id: projectId, import_type: 'geojson',
-        source_name: `Imported ${count} features`,
-        processed_count: count, error_count: 0, status: 'completed',
+        source_name: `Imported ${success}/${features.length} features`,
+        processed_count: success, error_count: errors.length, status: errors.length > 0 && success === 0 ? 'failed' : 'completed',
       });
+    } catch (err: any) {
+      errors.push(err.message || 'Unexpected error');
+    }
 
-      toast.success(`Imported ${count} ${targetLevel} geometries`);
+    setResult({ success, errors });
+    if (success > 0) {
+      toast.success(`Imported ${success} ${targetLevel} geometries`);
       onImported();
-    } catch (err) {
-      toast.error('Import failed');
-      console.error(err);
+    } else {
+      toast.error('Import failed — see details below');
     }
     setProcessing(false);
   }
 
   async function processCsv() {
     setProcessing(true);
+    setResult(null);
+    const errors: string[] = [];
+    let success = 0;
+
     try {
-      const lines = csvText.trim().split('\n');
-      if (lines.length < 2) { toast.error('CSV must have header + data rows'); setProcessing(false); return; }
+      const lines = csvText.trim().split('\n').filter(l => l.trim());
+      if (lines.length < 2) { toast.error('CSV must have header + at least 1 data row'); setProcessing(false); return; }
+
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
       const latIdx = headers.findIndex(h => h === 'lat' || h === 'latitude');
       const lngIdx = headers.findIndex(h => h === 'lng' || h === 'longitude' || h === 'lon');
-      const labelIdx = headers.findIndex(h => h === 'label' || h === 'name' || h === 'unit_code');
-      if (latIdx < 0 || lngIdx < 0) { toast.error('CSV must have lat and lng columns'); setProcessing(false); return; }
+      const labelIdx = headers.findIndex(h => h === 'label' || h === 'name' || h === 'unit_code' || h === 'code');
+      const widthIdx = headers.findIndex(h => h === 'width' || h === 'w');
+      const heightIdx = headers.findIndex(h => h === 'height' || h === 'h' || h === 'depth');
 
-      let count = 0;
+      if (latIdx < 0 || lngIdx < 0) {
+        toast.error('CSV must have lat and lng columns');
+        setProcessing(false);
+        return;
+      }
+
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(',').map(c => c.trim());
         const lat = parseFloat(cols[latIdx]);
         const lng = parseFloat(cols[lngIdx]);
-        if (isNaN(lat) || isNaN(lng)) continue;
+        if (isNaN(lat) || isNaN(lng)) { errors.push(`Row ${i + 1}: invalid lat/lng`); continue; }
 
-        const label = labelIdx >= 0 ? cols[labelIdx] : `${targetLevel}_${count}`;
-        const geom = {
-          type: 'Polygon',
-          coordinates: [[
-            [lng - 0.001, lat - 0.001], [lng + 0.001, lat - 0.001],
-            [lng + 0.001, lat + 0.001], [lng - 0.001, lat + 0.001],
-            [lng - 0.001, lat - 0.001],
-          ]],
-        };
-        const { error } = await supabase.from('project_geometries').insert({
-          project_id: projectId, parent_id: parentId || null, geometry_type: targetLevel,
-          label_en: label, geometry: geom, level: targetLevel === 'site' ? 0 : targetLevel === 'building' ? 1 : targetLevel === 'floor' ? 2 : 3,
-          sort_order: count, status: 'active',
-        });
-        if (!error) count++;
+        const label = labelIdx >= 0 && cols[labelIdx] ? cols[labelIdx] : `${targetLevel}_${i}`;
+        const w = widthIdx >= 0 ? parseFloat(cols[widthIdx]) : 50;
+        const h = heightIdx >= 0 ? parseFloat(cols[heightIdx]) : 40;
+
+        const geom = coordsToGeoJSON(lat, lng, isNaN(w) ? 50 : w, isNaN(h) ? 40 : h);
+
+        try {
+          await projectGeometriesApi.upsert({
+            project_id: projectId, parent_id: parentId || undefined, geometry_type: targetLevel,
+            label_en: label, geometry: geom,
+            level: ['site', 'building', 'floor', 'unit'].indexOf(targetLevel),
+            sort_order: success, status: 'active',
+          });
+          success++;
+        } catch (err: any) {
+          errors.push(`Row ${i + 1} (${label}): ${err.message || 'DB error'}`);
+        }
       }
 
       await geometryImportsApi.create({
         project_id: projectId, import_type: 'csv',
-        source_name: `Imported ${count} from CSV`,
-        processed_count: count, error_count: 0, status: 'completed',
+        source_name: `Imported ${success}/${lines.length - 1} from CSV`,
+        processed_count: success, error_count: errors.length, status: 'completed',
       });
-      toast.success(`Imported ${count} geometries from CSV`);
+    } catch (err: any) {
+      errors.push(err.message || 'Unexpected error');
+    }
+
+    setResult({ success, errors });
+    if (success > 0) {
+      toast.success(`Imported ${success} geometries from CSV`);
       onImported();
-    } catch (err) {
-      toast.error('CSV import failed');
-      console.error(err);
     }
     setProcessing(false);
   }
 
   async function processForm() {
     setProcessing(true);
+    setResult(null);
+    const errors: string[] = [];
+
     try {
       const lat = parseFloat(formData.lat);
       const lng = parseFloat(formData.lng);
-      const w = parseFloat(formData.width) / 100000;
-      const h = parseFloat(formData.height) / 100000;
-      if (isNaN(lat) || isNaN(lng)) { toast.error('Invalid coordinates'); setProcessing(false); return; }
+      const w = parseFloat(formData.width);
+      const h = parseFloat(formData.height);
 
-      const geom = {
-        type: 'Polygon',
-        coordinates: [[
-          [lng - w, lat - h], [lng + w, lat - h],
-          [lng + w, lat + h], [lng - w, lat + h],
-          [lng - w, lat - h],
-        ]],
-      };
-      const { error } = await supabase.from('project_geometries').insert({
-        project_id: projectId, parent_id: parentId || null, geometry_type: targetLevel,
-        label_en: formData.label_en || `${targetLevel}_form`,
-        label_ar: formData.label_ar || null,
-        geometry: geom, level: targetLevel === 'site' ? 0 : targetLevel === 'building' ? 1 : targetLevel === 'floor' ? 2 : 3,
+      if (isNaN(lat) || isNaN(lng)) { toast.error('Invalid coordinates'); setProcessing(false); return; }
+      if (isNaN(w) || w <= 0 || isNaN(h) || h <= 0) { toast.error('Width and height must be positive numbers (meters)'); setProcessing(false); return; }
+
+      const label = formData.label_en.trim() || `${targetLevel}_form`;
+      const geom = coordsToGeoJSON(lat, lng, w, h);
+
+      await projectGeometriesApi.upsert({
+        project_id: projectId, parent_id: parentId || undefined, geometry_type: targetLevel,
+        label_en: label, label_ar: formData.label_ar.trim() || undefined,
+        geometry: geom,
+        level: ['site', 'building', 'floor', 'unit'].indexOf(targetLevel),
         sort_order: 0, status: 'active',
       });
-      if (error) throw error;
 
       await geometryImportsApi.create({
         project_id: projectId, import_type: 'form',
-        source_name: `Form-created ${targetLevel}`,
+        source_name: `Form: ${label}`,
         processed_count: 1, error_count: 0, status: 'completed',
       });
 
+      setResult({ success: 1, errors: [] });
       toast.success(`${targetLevel} geometry created`);
       onImported();
-    } catch (err) {
+    } catch (err: any) {
+      errors.push(err.message || 'Failed to create geometry');
+      setResult({ success: 0, errors });
       toast.error('Failed to create geometry');
-      console.error(err);
     }
     setProcessing(false);
   }
@@ -211,15 +281,22 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
       <div className="p-3 space-y-2 text-xs">
         {tab === 'geojson' && (
           <>
-            <textarea className="input w-full" rows={6} placeholder='{"type":"Polygon","coordinates":[[[lng,lat],...]]}'
+            <p className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+              Paste GeoJSON or upload a .geojson/.json file. Supports FeatureCollection, single Feature, or raw geometry.
+            </p>
+            <textarea className="input w-full" rows={6}
+              placeholder={'{\n  "type": "FeatureCollection",\n  "features": [\n    {\n      "type": "Feature",\n      "properties": {"name": "..."},\n      "geometry": {\n        "type": "Polygon",\n        "coordinates": [[[lng,lat],[lng,lat],...]]\n      }\n    }\n  ]\n}'}
               value={geoJsonText} onChange={e => setGeoJsonText(e.target.value)}
-              style={{ fontFamily: 'monospace', fontSize: 10 }} />
+              style={{ fontFamily: 'monospace', fontSize: 10, minHeight: 140 }} />
             <div className="flex gap-1">
-              <button className="btn-secondary btn-xs flex-1" onClick={() => fileRef.current?.click()}>
-                <Upload size={10} /> Upload File
+              <button className="btn-secondary btn-xs" onClick={() => fileRef.current?.click()}>
+                <Upload size={10} /> Upload
+              </button>
+              <button className="btn-secondary btn-xs" onClick={formatGeoJson} disabled={!geoJsonText}>
+                Format
               </button>
               <button className="btn-primary btn-xs flex-1" disabled={!geoJsonText || processing} onClick={processGeoJson}>
-                {processing ? 'Processing...' : 'Import'}
+                {processing ? 'Processing...' : 'Import GeoJSON'}
               </button>
             </div>
           </>
@@ -228,17 +305,19 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
         {tab === 'csv' && (
           <>
             <p className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-              Columns: lat, lng, label (optional)
+              Required columns: <code>lat</code>, <code>lng</code>. Optional: <code>label</code>, <code>width</code> (m), <code>height</code> (m).
+              Each row creates a rectangle polygon centered at (lat, lng).
             </p>
-            <textarea className="input w-full" rows={6} placeholder="lat,lng,label&#10;24.86,46.72,Building A&#10;24.87,46.73,Building B"
+            <textarea className="input w-full" rows={5}
+              placeholder={'lat,lng,label,width,height\n24.86,46.72,Building A,60,50\n24.87,46.73,Building B,45,35'}
               value={csvText} onChange={e => setCsvText(e.target.value)}
-              style={{ fontFamily: 'monospace', fontSize: 10 }} />
+              style={{ fontFamily: 'monospace', fontSize: 10, minHeight: 100 }} />
             <div className="flex gap-1">
-              <button className="btn-secondary btn-xs flex-1" onClick={() => fileRef.current?.click()}>
+              <button className="btn-secondary btn-xs" onClick={() => fileRef.current?.click()}>
                 <Upload size={10} /> Upload CSV
               </button>
               <button className="btn-primary btn-xs flex-1" disabled={!csvText || processing} onClick={processCsv}>
-                {processing ? 'Processing...' : 'Import'}
+                {processing ? 'Processing...' : 'Import CSV'}
               </button>
             </div>
           </>
@@ -246,15 +325,11 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
 
         {tab === 'form' && (
           <div className="grid grid-cols-2 gap-2">
-            <div>
+            <div className="col-span-2">
               <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Label (EN)</label>
-              <input className="input w-full text-xs" value={formData.label_en}
+              <input className="input w-full text-xs" placeholder={`${targetLevel} name`}
+                value={formData.label_en}
                 onChange={e => setFormData(p => ({ ...p, label_en: e.target.value }))} />
-            </div>
-            <div>
-              <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Label (AR)</label>
-              <input className="input w-full text-xs" value={formData.label_ar}
-                onChange={e => setFormData(p => ({ ...p, label_ar: e.target.value }))} dir="rtl" />
             </div>
             <div>
               <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Latitude</label>
@@ -267,18 +342,18 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
                 onChange={e => setFormData(p => ({ ...p, lng: e.target.value }))} />
             </div>
             <div>
-              <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Width (m)</label>
-              <input className="input w-full text-xs" value={formData.width}
+              <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Width (meters)</label>
+              <input className="input w-full text-xs" type="number" min="1" value={formData.width}
                 onChange={e => setFormData(p => ({ ...p, width: e.target.value }))} />
             </div>
             <div>
-              <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Height (m)</label>
-              <input className="input w-full text-xs" value={formData.height}
+              <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Height (meters)</label>
+              <input className="input w-full text-xs" type="number" min="1" value={formData.height}
                 onChange={e => setFormData(p => ({ ...p, height: e.target.value }))} />
             </div>
-            <div className="col-span-2">
+            <div className="col-span-2 mt-1">
               <button className="btn-primary btn-xs w-full" disabled={processing} onClick={processForm}>
-                {processing ? 'Creating...' : 'Create Geometry'}
+                {processing ? 'Creating...' : 'Create Rectangle'}
               </button>
             </div>
           </div>
@@ -287,20 +362,43 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
         {tab === 'template' && (
           <div className="space-y-2">
             <p className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-              Copy geometry from an existing item as a template, then adjust coordinates.
+              Copy geometry from an existing item as a template.
             </p>
-            <select className="select w-full text-xs">
+            <select className="select w-full text-xs" value={templateSource}
+              onChange={e => setTemplateSource(e.target.value)}>
               <option value="">Select source...</option>
+              {(existingGeometries || []).map(g => (
+                <option key={g.id} value={g.id}>{g.label_en || g.id} ({g.geometry_type})</option>
+              ))}
             </select>
-            <button className="btn-primary btn-xs w-full" disabled>Copy & Adjust</button>
+            <button className="btn-primary btn-xs w-full" disabled={!templateSource || processing}>
+              Copy & Create
+            </button>
           </div>
         )}
 
         <input ref={fileRef} type="file" accept=".geojson,.json,.csv" className="hidden" onChange={handleFileUpload} />
       </div>
+
+      {result && (
+        <div className="border-t px-3 py-2 space-y-1" style={{ borderColor: 'var(--color-border)' }}>
+          <div className="flex items-center gap-1.5 text-xs">
+            {result.success > 0 ? (
+              <><CheckCircle2 size={12} className="text-green-500" /><span className="text-green-600 font-medium">{result.success} imported</span></>
+            ) : (
+              <><AlertCircle size={12} className="text-red-500" /><span className="text-red-600 font-medium">Import failed</span></>
+            )}
+            {result.errors.length > 0 && <span className="text-[10px] opacity-60">({result.errors.length} errors)</span>}
+          </div>
+          {result.errors.length > 0 && (
+            <div className="max-h-20 overflow-y-auto space-y-0.5">
+              {result.errors.map((e, i) => (
+                <p key={i} className="text-[9px] text-red-500 font-mono">• {e}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
-
-// De-duplicate supabase import
-import { supabase } from '../services/supabase';

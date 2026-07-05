@@ -1248,6 +1248,7 @@ export default function MapsPage() {
   const [showImagePanel, setShowImagePanel] = useState(false);
   const [showStatusReport, setShowStatusReport] = useState(false);
   const [breadcrumb, setBreadcrumb] = useState<{ level: string; id: string; label: string }[]>([]);
+  const [projectGeometries, setProjectGeometries] = useState<any[]>([]);
 
   const startBoundsPicking = useCallback(() => { setBoundsPoints([]); }, []);
 
@@ -1289,7 +1290,7 @@ export default function MapsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [projRes, blockRes, bldRes, floorRes, unitRes, annRes, viewsRes, vtRes] = await Promise.all([
+      const [projRes, blockRes, bldRes, floorRes, unitRes, annRes, viewsRes, vtRes, geomRes] = await Promise.all([
         supabase.from('projects').select('id, project_code, name_en, status, progress_percent, location, budget_amount, latitude, longitude').eq('is_active', true).limit(500),
         supabase.from('blocks').select('*').limit(500),
         supabase.from('buildings').select('*').limit(500),
@@ -1298,6 +1299,7 @@ export default function MapsPage() {
         supabase.from('map_annotations').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('map_views').select('*').order('created_at', { ascending: false }).limit(50),
         supabase.from('virtual_tours').select('*, units!left(unit_code)').limit(200),
+        supabase.from('project_geometries').select('*').order('sort_order').limit(500),
       ]);
 
       if (projRes.data) setProjects(projRes.data as MapProject[]);
@@ -1308,6 +1310,7 @@ export default function MapsPage() {
       if (annRes.data) setAnnotations(annRes.data as MapAnnotation[]);
       if (viewsRes.data) setSavedViews(viewsRes.data);
       if (vtRes.data) setVirtualTours(vtRes.data);
+      if (geomRes.data && geomRes.data.length > 0) setProjectGeometries(geomRes.data);
     } catch (err) {
       console.error('Map data load failed:', err);
       toast.error('Failed to load map data');
@@ -1650,7 +1653,30 @@ export default function MapsPage() {
         {/* Hierarchy panel */}
         {showGeometryPanel && (
           <div className="w-64 shrink-0">
-            <GeometryInputPanel projectId={selectedId || projects[0]?.id || ''} targetLevel="building" onClose={() => setShowGeometryPanel(false)} onImported={() => { setShowGeometryPanel(false); loadData(); }} />
+            {(() => {
+              const currentProjectId = selectedType === 'project' ? selectedId
+                : selectedType === 'block' ? blocks.find(b => b.id === selectedId)?.project_id
+                : selectedType === 'building' ? buildings.find(b => b.id === selectedId)?.project_id
+                : selectedType === 'floor' ? buildings.find(b => b.id === floors.find(f => f.id === selectedId)?.building_id)?.project_id
+                : selectedType === 'unit' ? units.find(u => u.id === selectedId)?.project_id
+                : projects[0]?.id;
+              const level = selectedType === 'project' ? 'site' as const
+                : selectedType === 'block' ? 'building' as const
+                : selectedType === 'building' ? 'building' as const
+                : selectedType === 'floor' ? 'floor' as const
+                : selectedType === 'unit' ? 'unit' as const
+                : 'site' as const;
+              const filteredGeoms = projectGeometries.filter(g => g.project_id === currentProjectId);
+              return (
+                <GeometryInputPanel
+                  projectId={currentProjectId || projects[0]?.id || ''}
+                  targetLevel={level}
+                  existingGeometries={filteredGeoms.map(g => ({ id: g.id, label_en: g.label_en, label_ar: g.label_ar, geometry_type: g.geometry_type }))}
+                  onClose={() => setShowGeometryPanel(false)}
+                  onImported={() => { setShowGeometryPanel(false); loadData(); }}
+                />
+              );
+            })()}
           </div>
         )}
         {showHierarchy && (viewMode === '2d' || viewMode === 'split') && !showGeometryPanel && (
@@ -1742,6 +1768,40 @@ export default function MapsPage() {
                       </Popup>
                     </GeoJSON>
                   ))}
+
+                  {/* Project geometries from GeometryInputPanel */}
+                  {(() => {
+                    const currentProjectId = selectedType === 'project' ? selectedId
+                      : selectedType === 'block' ? blocks.find(b => b.id === selectedId)?.project_id
+                      : selectedType === 'building' ? buildings.find(b => b.id === selectedId)?.project_id
+                      : selectedType === 'floor' ? buildings.find(b => b.id === floors.find(f => f.id === selectedId)?.building_id)?.project_id
+                      : selectedType === 'unit' ? units.find(u => u.id === selectedId)?.project_id
+                      : null;
+                    const filtered = currentProjectId
+                      ? projectGeometries.filter(g => g.project_id === currentProjectId)
+                      : projectGeometries.filter(g => g.project_id === projects[0]?.id);
+                    return filtered.map(g => g.geometry ? (
+                      <GeoJSON key={g.id} data={g.geometry}
+                        style={() => ({
+                          color: g.color || '#6366f1',
+                          fillColor: g.color || '#6366f1',
+                          fillOpacity: 0.2,
+                          weight: 2,
+                          dashArray: g.geometry_type === 'site' ? '5,5' : undefined,
+                        })}
+                        eventHandlers={{
+                          click: () => handleSelect(g.geometry_type as any, g.id),
+                        }}
+                      >
+                        <Popup>
+                          <div className="text-xs" style={{ minWidth: 150 }}>
+                            <h4 className="font-semibold">{g.label_en || g.geometry_type}</h4>
+                            <p className="text-[10px] opacity-60 capitalize mt-0.5">{g.geometry_type} geometry</p>
+                          </div>
+                        </Popup>
+                      </GeoJSON>
+                    ) : null);
+                  })()}
 
                   {/* Project markers */}
                   {projectMarkers.map(p => (
