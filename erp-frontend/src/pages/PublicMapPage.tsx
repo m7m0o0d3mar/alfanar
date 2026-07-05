@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, GeoJSON, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { supabase } from '../services/supabase';
@@ -13,6 +13,11 @@ interface MapProject {
   project_type: string | null; status: string;
   progress_percent: number | null;
   unit_count?: number;
+}
+
+interface ProjectGeometry {
+  id: string; project_id: string; geometry_type: string;
+  label_en?: string; geometry: any; color?: string;
 }
 
 function FitBounds({ projects }: { projects: MapProject[] }) {
@@ -50,6 +55,7 @@ export default function PublicMapPage() {
   const t = useT();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<MapProject[]>([]);
+  const [geometries, setGeometries] = useState<ProjectGeometry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showList, setShowList] = useState(false);
@@ -65,8 +71,6 @@ export default function PublicMapPage() {
           .from('projects')
           .select('id, name_en, name_ar, project_code, location, latitude, longitude, project_type, status, progress_percent')
           .eq('is_active', true)
-          .not('latitude', 'is', null)
-          .not('longitude', 'is', null)
           .order('name_en');
         if (!projData) { setLoading(false); return; }
         const unitCounts: Record<string, number> = {};
@@ -79,6 +83,13 @@ export default function PublicMapPage() {
             unitCounts[u.project_id] = (unitCounts[u.project_id] || 0) + 1;
           }
         }
+        const projectIds = projData.map(p => p.id);
+        const { data: geomData } = await supabase
+          .from('project_geometries')
+          .select('id, project_id, geometry_type, label_en, geometry, color')
+          .in('project_id', projectIds)
+          .not('geometry', 'is', null);
+        if (geomData) setGeometries(geomData as ProjectGeometry[]);
         setProjects(projData.map(p => ({
           ...p,
           unit_count: unitCounts[p.id] || 0,
@@ -161,6 +172,43 @@ export default function PublicMapPage() {
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <FitBounds projects={filtered} />
+            {/* Project geometries (site boundaries, building footprints) */}
+            {geometries.map(g => g.geometry && (
+              <GeoJSON key={g.id} data={g.geometry}
+                style={() => ({
+                  color: g.color || '#6366f1',
+                  fillColor: g.color || '#6366f1',
+                  fillOpacity: 0.12,
+                  weight: 1.5,
+                  dashArray: g.geometry_type === 'site' ? '6,4' : undefined,
+                })}
+                eventHandlers={{
+                  click: () => {
+                    const p = projects.find(x => x.id === g.project_id);
+                    if (p) window.location.href = `/public-properties?project=${p.id}`;
+                  },
+                }}>
+                <Popup>
+                  <div className="text-xs" style={{ minWidth: 160 }}>
+                    <h4 className="font-semibold text-sm">{geometries.find(x => x.id === g.id)?.label_en || g.geometry_type}</h4>
+                    {(() => {
+                      const p = projects.find(x => x.id === g.project_id);
+                      return p ? (
+                        <div className="mt-1.5 space-y-1">
+                          <p><strong>Project:</strong> {p.name_en}</p>
+                          <p><strong>Type:</strong> {p.project_type || 'N/A'}</p>
+                          <p><strong>Units:</strong> {p.unit_count}</p>
+                        </div>
+                      ) : null;
+                    })()}
+                    <button className="btn-primary btn-xs mt-2 w-full text-center"
+                      onClick={() => window.location.href = `/public-properties?project=${g.project_id}`}>
+                      View Properties
+                    </button>
+                  </div>
+                </Popup>
+              </GeoJSON>
+            ))}
             {filtered.filter(p => p.latitude && p.longitude).map(p => (
               <Marker key={p.id} position={[p.latitude!, p.longitude!]}
                 icon={createDivIcon(p.project_code || p.name_en, p.project_type || 'residential')}>
