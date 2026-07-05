@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Upload, FileText, Grid3x3, Type, Copy, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { supabase } from '../services/supabase';
 import { geometryImportsApi } from '../services/mapsApi';
 import { projectGeometriesApi } from '../services/api';
 
@@ -325,11 +326,17 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
 
         {tab === 'form' && (
           <div className="grid grid-cols-2 gap-2">
-            <div className="col-span-2">
+            <div>
               <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Label (EN)</label>
               <input className="input w-full text-xs" placeholder={`${targetLevel} name`}
                 value={formData.label_en}
                 onChange={e => setFormData(p => ({ ...p, label_en: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Label (AR)</label>
+              <input className="input w-full text-xs" placeholder="الاسم بالعربية"
+                value={formData.label_ar}
+                onChange={e => setFormData(p => ({ ...p, label_ar: e.target.value }))} />
             </div>
             <div>
               <label className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Latitude</label>
@@ -371,8 +378,25 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
                 <option key={g.id} value={g.id}>{g.label_en || g.id} ({g.geometry_type})</option>
               ))}
             </select>
-            <button className="btn-primary btn-xs w-full" disabled={!templateSource || processing}>
-              Copy & Create
+            <button className="btn-primary btn-xs w-full" disabled={!templateSource || processing}
+              onClick={async () => {
+                setProcessing(true);
+                setResult(null);
+                try {
+                  const { data } = await supabase.from('project_geometries').select('*').eq('id', templateSource).single();
+                  if (!data) { toast.error('Source not found'); setProcessing(false); return; }
+                  const { id: _, created_at: __, updated_at: ___, ...rest } = data;
+                  await projectGeometriesApi.upsert({ ...rest, geometry: rest.geometry, label_en: (rest.label_en || '') + ' (copy)', id: undefined });
+                  setResult({ success: 1, errors: [] });
+                  toast.success('Template copied');
+                  onImported();
+                } catch (err: any) {
+                  setResult({ success: 0, errors: [err.message || 'Copy failed'] });
+                  toast.error('Copy failed');
+                }
+                setProcessing(false);
+              }}>
+              {processing ? 'Copying...' : 'Copy & Create'}
             </button>
           </div>
         )}
