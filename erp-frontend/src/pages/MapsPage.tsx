@@ -121,7 +121,7 @@ function createDivIcon(status: string, label: string, size = 32, colors = DEFAUL
   });
 }
 
-function UnitClusterLayer({ units, colors }: { units: MapUnit[]; colors: Record<string, string> }) {
+function UnitClusterLayer({ units, colors, onUnitClick }: { units: MapUnit[]; colors: Record<string, string>; onUnitClick?: (unitId: string) => void }) {
   const map = useMap();
   useEffect(() => {
     if (units.length === 0) return;
@@ -142,12 +142,14 @@ function UnitClusterLayer({ units, colors }: { units: MapUnit[]; colors: Record<
         });
       },
     });
+    const navigateFn = onUnitClick ? `window.__mapUnitNav && window.__mapUnitNav('` : '';
     for (const u of units.slice(0, 500)) {
       if (!u.lat || !u.lng) continue;
       const icon = createDivIcon(u.status, 'U', 24, colors);
       const marker = L.marker([u.lat, u.lng], { icon });
+      const unitId = u.id;
       marker.bindPopup(`
-        <div style="min-width:140px">
+        <div style="min-width:150px">
           <h3 style="font-weight:600;font-size:13px">Unit ${u.unit_code}</h3>
           <div style="margin-top:4px;font-size:12px">
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colors[u.status] || '#6b7280'};margin-right:4px"></span>
@@ -157,13 +159,14 @@ function UnitClusterLayer({ units, colors }: { units: MapUnit[]; colors: Record<
             ${u.bedrooms != null ? `<br/>${u.bedrooms} BR` : ''}
             ${u.price ? `<br/><strong>${u.price.toLocaleString()} SAR</strong>` : ''}
           </div>
+          ${onUnitClick ? `<button onclick="window.__mapUnitNav('${unitId}')" style="margin-top:8px;width:100%;padding:4px 8px;background:#6366f1;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer;font-weight:500">View Details →</button>` : ''}
         </div>
       `);
       cluster.addLayer(marker);
     }
     map.addLayer(cluster);
     return () => { map.removeLayer(cluster); };
-  }, [map, units]);
+  }, [map, units, onUnitClick]);
   return null;
 }
 
@@ -1249,6 +1252,11 @@ export default function MapsPage() {
   const [showStatusReport, setShowStatusReport] = useState(false);
   const [breadcrumb, setBreadcrumb] = useState<{ level: string; id: string; label: string }[]>([]);
   const [projectGeometries, setProjectGeometries] = useState<any[]>([]);
+  const [showUnitFilters, setShowUnitFilters] = useState(false);
+  const [unitTypeFilter, setUnitTypeFilter] = useState('');
+  const [unitStatusFilter, setUnitStatusFilter] = useState('');
+  const [unitBedroomsMin, setUnitBedroomsMin] = useState<number | ''>('');
+  const [unitPriceMax, setUnitPriceMax] = useState<number | ''>('');
 
   const startBoundsPicking = useCallback(() => { setBoundsPoints([]); }, []);
 
@@ -1320,6 +1328,12 @@ export default function MapsPage() {
   }, [toast]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Allow unit popup buttons to navigate (Leaflet innerHTML cannot use React hooks)
+  useEffect(() => {
+    (window as any).__mapUnitNav = (unitId: string) => navigate(`/units/${unitId}`);
+    return () => { delete (window as any).__mapUnitNav; };
+  }, [navigate]);
 
   const buildBreadcrumb = useCallback((type: string, id: string) => {
     const bc: { level: string; id: string; label: string }[] = [];
@@ -1494,7 +1508,17 @@ export default function MapsPage() {
   }));
 
   const projectMarkers = filteredProjects.filter(p => p.latitude && p.longitude);
-  const unitMarkers = units.filter(u => u.lat && u.lng);
+  const unitMarkers = units.filter(u => {
+    if (!u.lat || !u.lng) return false;
+    if (unitTypeFilter && u.unit_type !== unitTypeFilter) return false;
+    if (unitStatusFilter && u.status !== unitStatusFilter) return false;
+    if (unitBedroomsMin !== '' && (u.bedrooms == null || u.bedrooms < unitBedroomsMin)) return false;
+    if (unitPriceMax !== '' && (u.price == null || u.price > unitPriceMax)) return false;
+    return true;
+  });
+
+  const unitTypes = [...new Set(units.map(u => u.unit_type).filter(Boolean))].sort();
+  const unitStatuses = [...new Set(units.map(u => u.status).filter(Boolean))].sort();
 
   return (
     <div className={`page-enter flex flex-col ${fullscreen ? 'fixed inset-0 z-[9999] bg-white' : 'h-[calc(100vh-8rem)]'}`}>
@@ -1578,6 +1602,10 @@ export default function MapsPage() {
             <option value="all">All Status</option>
             {Object.entries(statusLabels).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
           </select>
+          <button className={`btn-sm ${showUnitFilters ? 'bg-cyan-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setShowUnitFilters(!showUnitFilters)} title="Unit filters">
+            <Home size={13} />
+          </button>
           <button className={`btn-sm ${drawMode !== 'none' ? 'bg-blue-600 text-white' : 'btn-secondary'}`}
             onClick={() => setDrawMode(drawMode === 'none' ? 'polygon' : 'none')} title="Toggle drawing">
             <Pencil size={13} />
@@ -1645,6 +1673,34 @@ export default function MapsPage() {
               {savedViews.map(v => <option key={v.id} value={v.id}>{v.name_en}</option>)}
             </select>
           )}
+        </div>
+      )}
+
+      {/* Unit filters */}
+      {showUnitFilters && (
+        <div className="flex items-center gap-2 px-2 pb-1 flex-wrap">
+          <select className="select text-xs" style={{ padding: '0.2rem 0.5rem' }}
+            value={unitTypeFilter} onChange={e => setUnitTypeFilter(e.target.value)}>
+            <option value="">All Types</option>
+            {unitTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select className="select text-xs" style={{ padding: '0.2rem 0.5rem' }}
+            value={unitStatusFilter} onChange={e => setUnitStatusFilter(e.target.value)}>
+            <option value="">All Status</option>
+            {unitStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="select text-xs" style={{ padding: '0.2rem 0.5rem' }}
+            value={unitBedroomsMin} onChange={e => setUnitBedroomsMin(e.target.value === '' ? '' : parseInt(e.target.value))}>
+            <option value="">Bedrooms (min)</option>
+            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}+ BR</option>)}
+          </select>
+          <input type="number" placeholder="Max price (SAR)" className="input text-xs"
+            style={{ width: 110, padding: '0.2rem 0.5rem' }}
+            value={unitPriceMax} onChange={e => setUnitPriceMax(e.target.value === '' ? '' : parseInt(e.target.value))} />
+          <span className="text-[10px] opacity-60">{unitMarkers.length} units shown</span>
+          <button className="btn-xs btn-secondary" onClick={() => {
+            setUnitTypeFilter(''); setUnitStatusFilter(''); setUnitBedroomsMin(''); setUnitPriceMax('');
+          }}>Clear</button>
         </div>
       )}
 
@@ -1837,7 +1893,7 @@ export default function MapsPage() {
                   ))}
 
                   {/* Unit markers with clustering */}
-                  <UnitClusterLayer units={unitMarkers} colors={statusColors} />
+                  <UnitClusterLayer units={unitMarkers} colors={statusColors} onUnitClick={(id) => navigate(`/units/${id}`)} />
 
                   {/* Floor plan overlays + bounds picking */}
                   <FloorPlanOverlay floors={floors} selectedType={selectedType} selectedId={selectedId} boundsPoints={boundsPoints} />
