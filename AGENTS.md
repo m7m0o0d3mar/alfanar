@@ -24,6 +24,18 @@
 - `supabase db query --linked` — escape hatch for raw SQL when REST blocks `exec_sql`
 - `auth.uid()` returns null with service key → `is_admin()` unusable in SECURITY DEFINER functions via REST
 
+## Bidirectional Sync (migration 110-111)
+- `project_geometries` (unit) ↔ `units` via `geometry_id` FK + triggers
+- `project_geometries` (building) ↔ `buildings` via `geometry_id` FK + triggers
+- `project_geometries` (floor) ↔ `floors` via `geometry_id` FK + triggers
+- Triggers: `sync_geometry_to_unit`, `sync_unit_to_geometry`, `sync_geometry_to_building`, `sync_geometry_to_floor`
+- `pg_trigger_depth() > 1` prevents infinite recursion
+- `sync_geometry_to_unit` extracts lat/lng from polygon centroid for marker display
+- `sync_unit_to_geometry` skips Point-only units (markers already cover them)
+- `normalize_unit_type()` maps variations like `2BR` → `apartment`
+- To run SQL directly: `Get-Content database/XXX.sql | supabase db query --linked`
+- Admin cleanup: `scripts/cleanup_test_data.sql`
+
 ## Deployment
 - **Cloudflare Pages**: `https://alfanar-erp.pages.dev` and `https://alfanar-c0q.pages.dev`
 - **Vercel** (alternative): `vercel.json` at project root (`rootDirectory: erp-frontend`). To deploy:
