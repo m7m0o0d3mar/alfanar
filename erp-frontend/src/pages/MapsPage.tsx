@@ -1053,6 +1053,38 @@ function BoundsClickHandler({ onPick }: { onPick: (lat: number, lng: number) => 
   return null;
 }
 
+// ---------- Heatmap Layer ----------
+function HeatmapLayer({ units, mode }: { units: MapUnit[]; mode: 'price' | 'density' }) {
+  const map = useMap();
+  useEffect(() => {
+    const pts = units
+      .filter(u => u.lat && u.lng)
+      .slice(0, 2000)
+      .map(u => {
+        const intensity = mode === 'price'
+          ? Math.min(1, (u.price || 0) / 5000000)
+          : 1;
+        return [u.lat!, u.lng!, intensity] as [number, number, number];
+      });
+    if (pts.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await import('leaflet.heat');
+        if (cancelled) return;
+        const heat = (L as any).heatLayer(pts, {
+          radius: 25, blur: 15, maxZoom: 17,
+          max: 1, gradient: { 0.0: '#0000ff', 0.3: '#00ffff', 0.5: '#00ff00', 0.7: '#ffff00', 0.9: '#ff0000' },
+        });
+        heat.addTo(map);
+        return () => { map.removeLayer(heat); };
+      } catch { }
+    })();
+    return () => { cancelled = true; };
+  }, [map, units, mode]);
+  return null;
+}
+
 // ---------- Measurement Click Handler ----------
 function MeasureClickHandler({ onMeasure }: { onMeasure: (lat: number, lng: number) => void }) {
   useMapEvents({
@@ -1321,6 +1353,7 @@ export default function MapsPage() {
   const [projectGeometries, setProjectGeometries] = useState<any[]>([]);
   const [editingGeometry, setEditingGeometry] = useState<{ id: string; geometry: any } | null>(null);
   const [showUnitFilters, setShowUnitFilters] = useState(false);
+  const [heatmapMode, setHeatmapMode] = useState<'off' | 'price' | 'density'>('off');
   const [unitTypeFilter, setUnitTypeFilter] = useState('');
   const [unitStatusFilter, setUnitStatusFilter] = useState('');
   const [unitBedroomsMin, setUnitBedroomsMin] = useState<number | ''>('');
@@ -1705,6 +1738,11 @@ export default function MapsPage() {
             onClick={() => setMeasureMode(measureMode === 'none' ? 'distance' : 'none')} title="Measure">
             <Ruler size={13} />
           </button>
+          <button className={`btn-sm ${heatmapMode !== 'off' ? 'bg-red-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setHeatmapMode(heatmapMode === 'off' ? 'price' : heatmapMode === 'price' ? 'density' : 'off')}
+            title={`Heatmap: ${heatmapMode === 'off' ? 'off' : heatmapMode === 'price' ? 'price' : 'density'}`}>
+            <Layers size={13} />
+          </button>
           <button className="btn-secondary btn-sm" onClick={handleExportGeoJSON} disabled={!selectedId}
             title="Export as GeoJSON">
             <Download size={13} />
@@ -1984,6 +2022,7 @@ export default function MapsPage() {
 
                   {/* Unit markers with clustering */}
                   <UnitClusterLayer units={unitMarkers} colors={statusColors} onUnitClick={(id) => navigate(`/units/${id}`)} />
+                  {heatmapMode !== 'off' && <HeatmapLayer units={unitMarkers} mode={heatmapMode} />}
 
                   {/* Floor plan overlays + bounds picking */}
                   <FloorPlanOverlay floors={floors} selectedType={selectedType} selectedId={selectedId} boundsPoints={boundsPoints} />
