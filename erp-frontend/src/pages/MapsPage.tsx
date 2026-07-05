@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
+import { projectGeometriesApi } from '../services/api';
 import { MapContainer, TileLayer, Marker, Popup, useMap, ScaleControl, GeoJSON, Polygon, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -11,7 +12,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import {
   Building2, MapPin, List, ExternalLink, Search, Layers, Maximize2, Minimize2,
   Pencil, Eye, Trash2, Sun, Moon, QrCode, ChevronDown, ChevronRight,
-  Home, Box, PanelRight, Download, Upload, Save, Plus, Edit3, X,
+  Home, Box, PanelRight, Download, Upload, Save, Plus, Edit3, X, Check,
   RotateCw, ZoomIn, ZoomOut, Target, Grid3x3, Type, MousePointer, FileText,
   Ruler, Footprints, Camera, ChevronLeft, Image, FileSpreadsheet,
 } from 'lucide-react';
@@ -1096,6 +1097,72 @@ function MeasurementLayer({ measurements }: { measurements: Measurement[] }) {
   return null;
 }
 
+// ---------- Geometry Edit Layer (Edit existing project_geometries) ----------
+function GeometryEditLayer({ geometry, geometryId, onSave, onCancel }: {
+  geometry: any; geometryId: string;
+  onSave: (id: string, newGeo: any) => void;
+  onCancel: () => void;
+}) {
+  const map = useMap();
+  const fgRef = useRef<L.FeatureGroup>(new L.FeatureGroup());
+  const editedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try { await import('leaflet-draw'); } catch { return; }
+      if (cancelled) return;
+      const fg = fgRef.current;
+      map.addLayer(fg);
+
+      const layer = L.geoJSON(geometry, {
+        style: { color: '#6366f1', fillColor: '#6366f1', fillOpacity: 0.25, weight: 2 },
+        pointToLayer: (_f, ll) => L.marker(ll),
+      });
+      layer.eachLayer((l: any) => {
+        fg.addLayer(l);
+        if (l.editing) l.editing.enable();
+      });
+      editedRef.current = false;
+
+      const DEvent = (L as any).Draw.Event;
+      const handleEdit = () => { editedRef.current = true; };
+      map.on(DEvent.EDITED, handleEdit);
+      map.on(DEvent.EDITSTOP, handleEdit);
+
+      return () => {
+        map.off(DEvent.EDITED, handleEdit);
+        map.off(DEvent.EDITSTOP, handleEdit);
+        if (map.hasLayer(fg)) map.removeLayer(fg);
+      };
+    })();
+    return () => { cancelled = true; };
+  }, [map, geometry]);
+
+  return (
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex gap-2 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg px-3 py-2 items-center">
+      <span className="text-xs font-medium text-gray-600">Editing geometry — drag vertices to modify</span>
+      <span className="w-px h-4 bg-gray-200" />
+      <button onClick={() => {
+        const fg = fgRef.current;
+        let newGeo: any = null;
+        fg.eachLayer((layer: any) => {
+          if (layer.edited || !editedRef.current) {
+            try { newGeo = (layer as any).toGeoJSON(); } catch { }
+          }
+        });
+        if (newGeo) onSave(geometryId, newGeo);
+        else onCancel();
+      }} className="btn-primary btn-xs flex items-center gap-1">
+        <Check size={11} /> Save
+      </button>
+      <button onClick={onCancel} className="btn-secondary btn-xs flex items-center gap-1">
+        <X size={11} /> Cancel
+      </button>
+    </div>
+  );
+}
+
 // ---------- Drawing Toolbar (Polygon + Marker) ----------
 function DrawingToolbar({
   enabled, annotations, onSave, mode, setMode,
@@ -1252,6 +1319,7 @@ export default function MapsPage() {
   const [showStatusReport, setShowStatusReport] = useState(false);
   const [breadcrumb, setBreadcrumb] = useState<{ level: string; id: string; label: string }[]>([]);
   const [projectGeometries, setProjectGeometries] = useState<any[]>([]);
+  const [editingGeometry, setEditingGeometry] = useState<{ id: string; geometry: any } | null>(null);
   const [showUnitFilters, setShowUnitFilters] = useState(false);
   const [unitTypeFilter, setUnitTypeFilter] = useState('');
   const [unitStatusFilter, setUnitStatusFilter] = useState('');
@@ -1781,8 +1849,25 @@ export default function MapsPage() {
                     onUpdate={() => {}}
                   />
 
-                  {/* Drawing toolbar */}
+                  {/* Drawing toolbar / Geometry editor */}
                   <DrawingToolbar enabled={drawMode !== 'none'} annotations={annotations} onSave={saveAnnotation} mode={drawMode} setMode={setDrawMode} />
+                  {editingGeometry && (
+                    <GeometryEditLayer
+                      geometry={editingGeometry.geometry}
+                      geometryId={editingGeometry.id}
+                      onSave={async (id, newGeo) => {
+                        try {
+                          await projectGeometriesApi.upsert({ id, geometry: newGeo });
+                          toast.success('Geometry updated');
+                          setEditingGeometry(null);
+                          loadData();
+                        } catch (err: any) {
+                          toast.error('Failed to save: ' + (err.message || ''));
+                        }
+                      }}
+                      onCancel={() => setEditingGeometry(null)}
+                    />
+                  )}
 
                   {/* Block polygons */}
                   {blockPolygons.map(b => b.geometry && (
@@ -1850,9 +1935,14 @@ export default function MapsPage() {
                         }}
                       >
                         <Popup>
-                          <div className="text-xs" style={{ minWidth: 150 }}>
+                          <div className="text-xs" style={{ minWidth: 180 }}>
                             <h4 className="font-semibold">{g.label_en || g.geometry_type}</h4>
                             <p className="text-[10px] opacity-60 capitalize mt-0.5">{g.geometry_type} geometry</p>
+                            <button
+                              onClick={() => setEditingGeometry({ id: g.id, geometry: g.geometry })}
+                              className="btn-primary btn-xs w-full mt-1.5 flex items-center justify-center gap-1">
+                              <Edit3 size={10} /> Edit on map
+                            </button>
                           </div>
                         </Popup>
                       </GeoJSON>
