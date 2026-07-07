@@ -124,8 +124,6 @@ function createDivIcon(status: string, label: string, size = 32, colors = DEFAUL
 
 function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { units: MapUnit[]; colors: Record<string, string>; onUnitClick?: (unitId: string) => void; showLabels?: boolean }) {
   const map = useMap();
-  const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
-  const labelRef = useRef<L.LayerGroup | null>(null);
   useEffect(() => {
     if (units.length === 0) return;
     const cluster = L.markerClusterGroup({
@@ -145,7 +143,6 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
         });
       },
     });
-    const labels = L.layerGroup();
     for (const u of units.slice(0, 500)) {
       if (!u.lat || !u.lng) continue;
       const shortLabel = u.unit_code ? u.unit_code.length > 4 ? u.unit_code.slice(0, 4) : u.unit_code.slice(-4) : 'U';
@@ -182,39 +179,30 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
         </div>
       `, { maxWidth: 280 });
       cluster.addLayer(marker);
-      // Create separate label marker
-      const displayCode = u.unit_code || '';
-      if (displayCode) {
-        const labelMarker = L.marker([u.lat, u.lng], {
-          icon: L.divIcon({
-            className: '',
-            html: `<div style="text-align:center;font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;margin-top:1px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2)">${displayCode}</div>`,
-            iconSize: [80, 16],
-            iconAnchor: [40, 0],
-          }),
-          interactive: false,
-        });
-        labels.addLayer(labelMarker);
-      }
     }
     map.addLayer(cluster);
-    if (showLabels) map.addLayer(labels);
-    clusterRef.current = cluster;
-    labelRef.current = labels;
-    return () => {
-      map.removeLayer(cluster);
-      if (map.hasLayer(labels)) map.removeLayer(labels);
-    };
+    return () => { map.removeLayer(cluster); };
   }, [map, units, onUnitClick]);
-  // Separate effect for toggling labels without recreating markers
+  // Label effect: rebuilds labels on units change, toggles visibility on showLabels change
   useEffect(() => {
-    if (!labelRef.current || !map) return;
-    if (showLabels) {
-      if (!map.hasLayer(labelRef.current)) map.addLayer(labelRef.current);
-    } else {
-      if (map.hasLayer(labelRef.current)) map.removeLayer(labelRef.current);
+    if (units.length === 0) return;
+    const labels = L.layerGroup();
+    for (const u of units.slice(0, 500)) {
+      if (!u.lat || !u.lng || !u.unit_code) continue;
+      const labelMarker = L.marker([u.lat, u.lng], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2);text-align:center">${u.unit_code}</div>`,
+          iconSize: [100, 18],
+          iconAnchor: [50, 22],
+        }),
+        interactive: false,
+      });
+      labels.addLayer(labelMarker);
     }
-  }, [map, showLabels]);
+    if (showLabels) map.addLayer(labels);
+    return () => { if (map.hasLayer(labels)) map.removeLayer(labels); };
+  }, [map, units, showLabels]);
   return null;
 }
 
@@ -257,7 +245,7 @@ function Map3DView({
         const w = container.clientWidth || 600;
         const h = container.clientHeight || 400;
 
-        const isSatellite = tileLayer === 'satellite';
+          const isSatellite = tileLayer === 'satellite';
         const isTerrain = tileLayer === 'terrain';
         const sceneBg = isSatellite ? 0x1a2a1a : isTerrain ? 0xe8dcc8 : 0xe8ecf1;
         const groundColor = isSatellite ? 0x2d4a2d : isTerrain ? 0xc8b898 : 0xd0d5dd;
@@ -267,8 +255,8 @@ function Map3DView({
         const scene = new T.Scene();
         scene.background = new T.Color(sceneBg);
 
-        const camera = new T.PerspectiveCamera(45, w / h, 0.1, 1000);
-        camera.position.set(0, 10, 15);
+        const camera = new T.PerspectiveCamera(40, w / h, 0.1, 1000);
+        camera.position.set(0, 12, 18);
         camera.lookAt(0, 0, 0);
 
         const renderer = new T.WebGLRenderer({ antialias: true, alpha: true });
@@ -276,31 +264,36 @@ function Map3DView({
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = T.PCFSoftShadowMap;
+        renderer.toneMapping = T.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
         renderer.setClearColor(sceneBg, 1);
         container.appendChild(renderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        controls.dampingFactor = 0.08;
-        controls.maxPolarAngle = Math.PI / 2.2;
-        controls.minDistance = 5;
-        controls.maxDistance = 300;
+        controls.dampingFactor = 0.1;
+        controls.maxPolarAngle = Math.PI / 2.1;
+        controls.minDistance = 3;
+        controls.maxDistance = 500;
         controls.target.set(0, 0, 0);
 
         // Lighting
-        const ambient = new T.AmbientLight(isSatellite ? 0xaabb99 : 0xffffff, 0.7);
+        const ambient = new T.AmbientLight(isSatellite ? 0xaabb99 : 0xffffff, 0.5);
         scene.add(ambient);
         const hemSky = isSatellite ? 0x88aa88 : 0x87ceeb;
         const hemGround = isSatellite ? 0x557755 : 0x98d8c8;
-        const hemisphere = new T.HemisphereLight(hemSky, hemGround, 0.8);
+        const hemisphere = new T.HemisphereLight(hemSky, hemGround, 0.6);
         scene.add(hemisphere);
-        const dirLight = new T.DirectionalLight(0xffffff, 1.5);
-        dirLight.position.set(15, 25, 15);
+        const dirLight = new T.DirectionalLight(isSatellite ? 0xccddcc : 0xffeedd, 2.0);
+        dirLight.position.set(20, 30, 20);
         dirLight.castShadow = true;
         scene.add(dirLight);
-        const fillLight = new T.DirectionalLight(0xffffff, 0.3);
-        fillLight.position.set(-15, 5, -15);
+        const fillLight = new T.DirectionalLight(isSatellite ? 0x99aa99 : 0xffffff, 0.5);
+        fillLight.position.set(-20, 10, -20);
         scene.add(fillLight);
+        const backLight = new T.DirectionalLight(0xffffff, 0.3);
+        backLight.position.set(0, 5, -20);
+        scene.add(backLight);
 
         // Ground grid
         const gridHelper = new T.GridHelper(40, 20, gridColor, gridColor2);
@@ -411,26 +404,26 @@ function Map3DView({
               const bounds = L.geoJSON(d.geometry).getBounds();
               bw = (bounds.getEast() - bounds.getWest()) * lngM * 0.001;
               bd = (bounds.getNorth() - bounds.getSouth()) * latM * 0.001;
-              if (!isSite) { bw *= 0.7; bd *= 0.7; }
-              bw = Math.max(0.8, Math.min(bw, 8));
-              bd = Math.max(0.6, Math.min(bd, 6));
-            } catch { bw = 3; bd = 2; }
+              if (!isSite) { bw *= 0.9; bd *= 0.9; }
+              bw = Math.max(2, Math.min(bw, 16));
+              bd = Math.max(1.5, Math.min(bd, 12));
+            } catch { bw = 5; bd = 4; }
           } else {
-            bw = Math.min(8, Math.max(2, maxSpread * 0.08));
-            bd = Math.min(6, Math.max(1.5, maxSpread * 0.06));
+            bw = Math.min(16, Math.max(4, maxSpread * 0.15));
+            bd = Math.min(12, Math.max(3, maxSpread * 0.12));
           }
 
           if (isSite) {
-            const slabMat = new T.MeshStandardMaterial({ color: baseColor, roughness: 0.7, metalness: 0.05, transparent: true, opacity: 0.6, side: T.DoubleSide });
-            const slab = new T.Mesh(new T.BoxGeometry(bw, 0.08, bd), slabMat);
-            slab.position.set(x, 0.04, z);
+            const slabMat = new T.MeshStandardMaterial({ color: baseColor, roughness: 0.6, metalness: 0.1, transparent: true, opacity: 0.5, side: T.DoubleSide });
+            const slab = new T.Mesh(new T.BoxGeometry(bw, 0.15, bd), slabMat);
+            slab.position.set(x, 0.075, z);
             slab.receiveShadow = true;
             slab.userData = { type: item.type, id: d.id, label: d.name_en };
             scene.add(slab);
             raycasterTargets.push(slab);
 
-            const edgeMat = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 });
-            const edges = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(bw, 0.08, bd)), edgeMat);
+            const edgeMat = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+            const edges = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(bw, 0.15, bd)), edgeMat);
             edges.position.copy(slab.position);
             scene.add(edges);
 
@@ -456,10 +449,10 @@ function Map3DView({
             sprite.scale.set(3, 0.75, 1);
             scene.add(sprite);
           } else {
-            const floorH = 0.35;
-            const roofH = 0.15;
-            const floorCount = (d as any).floor_count || 3;
-            const roofColor = 0x555555;
+            const floorH = 1.0;
+            const roofH = 0.3;
+            const floorCount = Math.min((d as any).floor_count || 3, 10);
+            const roofColor = 0x888888;
             const floorMeshes: any[] = [];
             for (let f = 0; f < floorCount; f++) {
               const shade = f % 2 === 0 ? 1.0 : 0.85;
@@ -470,8 +463,8 @@ function Map3DView({
               if (isSelected) floorColor = 0x00ff88;
               const emissive = isSelected ? 0x00ff88 : 0x000000;
               const emissiveIntensity = isSelected ? 0.3 : 0;
-              const fGeo = new T.BoxGeometry(bw * (1 - f * 0.01), floorH, bd * (1 - f * 0.01));
-              const fMat = new T.MeshStandardMaterial({ color: floorColor, roughness: 0.5, metalness: 0.2, emissive, emissiveIntensity });
+              const fGeo = new T.BoxGeometry(bw * (1 - f * 0.02), floorH, bd * (1 - f * 0.02));
+              const fMat = new T.MeshStandardMaterial({ color: floorColor, roughness: 0.4, metalness: 0.3, emissive, emissiveIntensity });
               const fMesh = new T.Mesh(fGeo, fMat);
               fMesh.position.set(x, f * floorH + floorH / 2, z);
               fMesh.castShadow = true;
@@ -481,13 +474,13 @@ function Map3DView({
               floorMeshes.push(fMesh);
               raycasterTargets.push(fMesh);
               const fEdge = new T.EdgesGeometry(fGeo);
-              const fEdgeMat = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08 });
+              const fEdgeMat = new T.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 });
               const fEdgeLine = new T.LineSegments(fEdge, fEdgeMat);
               fEdgeLine.position.copy(fMesh.position);
               scene.add(fEdgeLine);
             }
-            const roofW = bw * 1.02;
-            const roofD = bd * 1.02;
+            const roofW = bw * 1.03;
+            const roofD = bd * 1.03;
             const roofGeo = new T.BoxGeometry(roofW, roofH, roofD);
             const roofMat = new T.MeshStandardMaterial({ color: roofColor, roughness: 0.7, metalness: 0.1 });
             const roofMesh = new T.Mesh(roofGeo, roofMat);

@@ -105,8 +105,6 @@ function FitProjectBounds({ features }: { features: FeatureGroupData[] }) {
 function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: string; showLabels?: boolean; refreshKey?: number }) {
   const map = useMap();
   const [units, setUnits] = useState<any[]>([]);
-  const markerRef = useRef<L.Marker[]>([]);
-  const labelRef = useRef<L.LayerGroup | null>(null);
   useEffect(() => {
     supabase.from('units').select('id, unit_code, unit_type, status, area_sqm, bedrooms, price, sale_price, lat, lng, floor_number, project_id')
       .eq('project_id', projectId).eq('is_active', true).limit(500).then(({ data }) => {
@@ -115,7 +113,6 @@ function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: str
   }, [projectId, refreshKey]);
   useEffect(() => {
     const markers: L.Marker[] = [];
-    const labels = L.layerGroup();
     for (const u of units) {
       if (!u.lat || !u.lng) continue;
       const color = statusColors[u.status] || '#6b7280';
@@ -151,38 +148,29 @@ function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: str
       `, { maxWidth: 280 });
       marker.addTo(map);
       markers.push(marker);
-      // Create separate label marker
-      const displayCode = u.unit_code || '';
-      if (displayCode) {
-        const labelMarker = L.marker([u.lat, u.lng], {
-          icon: L.divIcon({
-            className: '',
-            html: `<div style="text-align:center;font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2)">${displayCode}</div>`,
-            iconSize: [80, 16],
-            iconAnchor: [40, 0],
-          }),
-          interactive: false,
-        });
-        labels.addLayer(labelMarker);
-      }
+    }
+    return () => { markers.forEach(m => map.removeLayer(m)); };
+  }, [map, units]);
+  // Label effect: rebuilds labels on units change, toggles visibility on showLabels change
+  useEffect(() => {
+    if (units.length === 0) return;
+    const labels = L.layerGroup();
+    for (const u of units) {
+      if (!u.lat || !u.lng || !u.unit_code) continue;
+      const labelMarker = L.marker([u.lat, u.lng], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2);text-align:center">${u.unit_code}</div>`,
+          iconSize: [100, 18],
+          iconAnchor: [50, 22],
+        }),
+        interactive: false,
+      });
+      labels.addLayer(labelMarker);
     }
     if (showLabels) map.addLayer(labels);
-    markerRef.current = markers;
-    labelRef.current = labels;
-    return () => {
-      markers.forEach(m => map.removeLayer(m));
-      if (map.hasLayer(labels)) map.removeLayer(labels);
-    };
-  }, [map, units]);
-  // Separate effect for toggling labels without recreating markers
-  useEffect(() => {
-    if (!labelRef.current || !map) return;
-    if (showLabels) {
-      if (!map.hasLayer(labelRef.current)) map.addLayer(labelRef.current);
-    } else {
-      if (map.hasLayer(labelRef.current)) map.removeLayer(labelRef.current);
-    }
-  }, [map, showLabels]);
+    return () => { if (map.hasLayer(labels)) map.removeLayer(labels); };
+  }, [map, units, showLabels]);
   return null;
 }
 
@@ -447,8 +435,8 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
       for (const feat of features) {
         if (!feat.geometry || (feat.geometry.type !== 'Polygon' && feat.geometry.type !== 'MultiPolygon')) continue;
         const props = feat.properties || {};
-        const rawType = props.type || 'building';
-        const geoType = (rawType === 'Feature' || rawType === 'FeatureCollection') ? 'building' : rawType;
+        const rawType = props.type || props.geometry_type || 'unit';
+        const geoType = (rawType === 'Feature' || rawType === 'FeatureCollection') ? 'unit' : rawType;
         await projectGeometriesApi.upsert({
           project_id: projectId,
           geometry_type: geoType,
@@ -465,8 +453,8 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
           level: props.level || 1,
           sort_order: count,
         });
-        // If type is 'unit', also sync directly to units table
-        if (geoType === 'unit') {
+        // Sync non-site features directly to units table
+        if (geoType !== 'site') {
           const coords = feat.geometry.type === 'Polygon' ? feat.geometry.coordinates[0] : feat.geometry.coordinates[0][0];
           const lat = String(coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length);
           const lng = String(coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length);

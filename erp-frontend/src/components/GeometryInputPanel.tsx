@@ -189,8 +189,8 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
         const geom = f.geometry;
         if (!geom) { errors.push(`Feature ${i + 1}: missing geometry`); continue; }
 
-        const rawType = f.properties?.type || f.properties?.geometry_type || targetLevel;
-        const featType = (rawType === 'Feature' || rawType === 'FeatureCollection') ? targetLevel : rawType;
+        const rawType = f.properties?.type || f.properties?.geometry_type || 'unit';
+        const featType = (rawType === 'Feature' || rawType === 'FeatureCollection') ? 'unit' : rawType;
         const label = f.properties?.label_en || f.properties?.name || f.properties?.unit_code || `${featType}_${i + 1}`;
         const labelAr = f.properties?.label_ar || null;
 
@@ -208,8 +208,8 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
             status: 'active',
           });
           success++;
-          // If type is 'unit', sync directly to units table preserving exact geometry
-          if (featType === 'unit') {
+          // Sync non-site features directly to units table
+          if (featType !== 'site') {
             const coords = geom.type === 'Polygon' ? geom.coordinates[0] : geom.coordinates[0][0];
             const lat = String(coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length);
             const lng = String(coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length);
