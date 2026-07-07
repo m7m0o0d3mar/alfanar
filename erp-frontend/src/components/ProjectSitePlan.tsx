@@ -106,7 +106,7 @@ function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: str
   const map = useMap();
   const [units, setUnits] = useState<any[]>([]);
   useEffect(() => {
-    supabase.from('units').select('id, unit_code, unit_type, status, area_sqm, bedrooms, price, sale_price, lat, lng, floor_number, project_id')
+    supabase.from('units').select('id, unit_code, unit_type, status, area_sqm, bedrooms, price, lat, lng, floor_number, project_id')
       .eq('project_id', projectId).eq('is_active', true).limit(500).then(({ data }) => {
         setUnits(data || []);
       });
@@ -116,7 +116,7 @@ function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: str
     for (const u of units) {
       if (!u.lat || !u.lng) continue;
       const color = statusColors[u.status] || '#6b7280';
-      const shortLabel = u.unit_code ? u.unit_code.length > 4 ? u.unit_code.slice(0, 4) : u.unit_code.slice(-4) : 'U';
+      const shortLabel = u.unit_code ? u.unit_code.match(/\d+$/)?.[0] || u.unit_code.slice(-3) : 'U';
       const marker = L.marker([u.lat, u.lng], {
         icon: L.divIcon({
           className: '',
@@ -142,14 +142,14 @@ function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: str
             ${u.area_sqm != null ? `<span style="color:#6b7280">Area:</span><span>${u.area_sqm} m²</span>` : ''}
             ${u.bedrooms != null ? `<span style="color:#6b7280">Bedrooms:</span><span>${u.bedrooms}</span>` : ''}
             ${u.floor_number != null ? `<span style="color:#6b7280">Floor:</span><span>${u.floor_number}</span>` : ''}
-            ${(u.sale_price || u.price) ? `<span style="color:#6b7280">Price:</span><span>${Number(u.sale_price || u.price).toLocaleString()} SAR</span>` : ''}
+            ${u.price != null ? `<span style="color:#6b7280">Price:</span><span>${u.price.toLocaleString()} SAR</span>` : ''}
           </div>
         </div>
       `, { maxWidth: 280 });
       marker.addTo(map);
       markers.push(marker);
     }
-    return () => { markers.forEach(m => map.removeLayer(m)); };
+    return () => { markers.forEach(m => { try { map.removeLayer(m); } catch {} }); };
   }, [map, units]);
   // Label effect: rebuilds labels on units change, toggles visibility on showLabels change
   useEffect(() => {
@@ -160,7 +160,7 @@ function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: str
       const labelMarker = L.marker([u.lat, u.lng], {
         icon: L.divIcon({
           className: '',
-          html: `<div style="font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2);text-align:center">${u.unit_code}</div>`,
+          html: `<div style="font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2);text-align:center">${u.unit_code.match(/\d+$/)?.[0] || u.unit_code.slice(-3)}</div>`,
           iconSize: [100, 18],
           iconAnchor: [50, 22],
         }),
@@ -169,7 +169,7 @@ function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: str
       labels.addLayer(labelMarker);
     }
     if (showLabels) map.addLayer(labels);
-    return () => { if (map.hasLayer(labels)) map.removeLayer(labels); };
+    return () => { try { if (map && map.hasLayer(labels)) map.removeLayer(labels); } catch {} };
   }, [map, units, showLabels]);
   return null;
 }

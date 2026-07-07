@@ -93,7 +93,7 @@ interface MapFloor {
 }
 interface MapUnit {
   id: string; unit_code: string; unit_type: string; floor_number?: number;
-  status: string; area_sqm?: number; bedrooms?: number; price?: number; sale_price?: number;
+  status: string; area_sqm?: number; bedrooms?: number; price?: number;
   lat?: number; lng?: number; geometry?: any; floor_id?: string;
   block_id?: string; project_id: string;
 }
@@ -145,7 +145,7 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
     });
     for (const u of units.slice(0, 500)) {
       if (!u.lat || !u.lng) continue;
-      const shortLabel = u.unit_code ? u.unit_code.length > 4 ? u.unit_code.slice(0, 4) : u.unit_code.slice(-4) : 'U';
+      const shortLabel = u.unit_code ? u.unit_code.match(/\d+$/)?.[0] || u.unit_code.slice(-3) : 'U';
       const statusColor = colors[u.status] || '#6b7280';
       const marker = L.marker([u.lat, u.lng], {
         icon: L.divIcon({
@@ -173,7 +173,7 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
             ${u.area_sqm != null ? `<span style="color:#6b7280">Area:</span><span>${u.area_sqm} m²</span>` : ''}
             ${u.bedrooms != null ? `<span style="color:#6b7280">Bedrooms:</span><span>${u.bedrooms}</span>` : ''}
             ${u.floor_number != null ? `<span style="color:#6b7280">Floor:</span><span>${u.floor_number}</span>` : ''}
-            ${u.sale_price != null ? `<span style="color:#6b7280">Price:</span><span>${Number(u.sale_price).toLocaleString()} SAR</span>` : (u.price != null ? `<span style="color:#6b7280">Price:</span><span>${u.price.toLocaleString()} SAR</span>` : '')}
+            ${u.price != null ? `<span style="color:#6b7280">Price:</span><span>${u.price.toLocaleString()} SAR</span>` : ''}
           </div>
           ${onUnitClick ? `<button onclick="window.__mapUnitNav('${unitId}')" style="margin-top:8px;width:100%;padding:6px;background:#6366f1;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500">View Details →</button>` : ''}
         </div>
@@ -181,7 +181,7 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
       cluster.addLayer(marker);
     }
     map.addLayer(cluster);
-    return () => { map.removeLayer(cluster); };
+    return () => { try { map.removeLayer(cluster); } catch {} };
   }, [map, units, onUnitClick]);
   // Label effect: rebuilds labels on units change, toggles visibility on showLabels change
   useEffect(() => {
@@ -192,7 +192,7 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
       const labelMarker = L.marker([u.lat, u.lng], {
         icon: L.divIcon({
           className: '',
-          html: `<div style="font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2);text-align:center">${u.unit_code}</div>`,
+          html: `<div style="font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2);text-align:center">${u.unit_code.match(/\d+$/)?.[0] || u.unit_code.slice(-3)}</div>`,
           iconSize: [100, 18],
           iconAnchor: [50, 22],
         }),
@@ -201,7 +201,7 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
       labels.addLayer(labelMarker);
     }
     if (showLabels) map.addLayer(labels);
-    return () => { if (map.hasLayer(labels)) map.removeLayer(labels); };
+    return () => { try { if (map && map.hasLayer(labels)) map.removeLayer(labels); } catch {} };
   }, [map, units, showLabels]);
   return null;
 }
@@ -229,9 +229,11 @@ function Map3DView({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<any>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!show || !containerRef.current) return;
+    if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
     let mounted = true;
 
     (async () => {
@@ -404,26 +406,26 @@ function Map3DView({
               const bounds = L.geoJSON(d.geometry).getBounds();
               bw = (bounds.getEast() - bounds.getWest()) * lngM * 0.001;
               bd = (bounds.getNorth() - bounds.getSouth()) * latM * 0.001;
-              if (!isSite) { bw *= 0.9; bd *= 0.9; }
-              bw = Math.max(2, Math.min(bw, 16));
-              bd = Math.max(1.5, Math.min(bd, 12));
-            } catch { bw = 5; bd = 4; }
+              if (!isSite) { bw *= 1.0; bd *= 1.0; }
+              bw = Math.max(4, Math.min(bw, 24));
+              bd = Math.max(3, Math.min(bd, 18));
+            } catch { bw = 8; bd = 6; }
           } else {
-            bw = Math.min(16, Math.max(4, maxSpread * 0.15));
-            bd = Math.min(12, Math.max(3, maxSpread * 0.12));
+            bw = Math.min(24, Math.max(6, maxSpread * 0.2));
+            bd = Math.min(18, Math.max(4, maxSpread * 0.16));
           }
 
           if (isSite) {
-            const slabMat = new T.MeshStandardMaterial({ color: baseColor, roughness: 0.6, metalness: 0.1, transparent: true, opacity: 0.5, side: T.DoubleSide });
-            const slab = new T.Mesh(new T.BoxGeometry(bw, 0.15, bd), slabMat);
-            slab.position.set(x, 0.075, z);
+            const slabMat = new T.MeshStandardMaterial({ color: baseColor, roughness: 0.5, metalness: 0.15, transparent: true, opacity: 0.6, side: T.DoubleSide });
+            const slab = new T.Mesh(new T.BoxGeometry(bw, 0.2, bd), slabMat);
+            slab.position.set(x, 0.1, z);
             slab.receiveShadow = true;
             slab.userData = { type: item.type, id: d.id, label: d.name_en };
             scene.add(slab);
             raycasterTargets.push(slab);
 
-            const edgeMat = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
-            const edges = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(bw, 0.15, bd)), edgeMat);
+            const edgeMat = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
+            const edges = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(bw, 0.2, bd)), edgeMat);
             edges.position.copy(slab.position);
             scene.add(edges);
 
@@ -445,14 +447,14 @@ function Map3DView({
             ctx.fillText(d.name_en || '', 128, 38);
             const tex = new T.CanvasTexture(canvas);
             const sprite = new T.Sprite(new T.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-            sprite.position.set(x, 0.5, z);
-            sprite.scale.set(3, 0.75, 1);
+            sprite.position.set(x, 0.8, z);
+            sprite.scale.set(4, 1, 1);
             scene.add(sprite);
           } else {
-            const floorH = 1.0;
-            const roofH = 0.3;
+            const floorH = 1.5;
+            const roofH = 0.4;
             const floorCount = Math.min((d as any).floor_count || 3, 10);
-            const roofColor = 0x888888;
+            const roofColor = 0x999999;
             const floorMeshes: any[] = [];
             for (let f = 0; f < floorCount; f++) {
               const shade = f % 2 === 0 ? 1.0 : 0.85;
@@ -464,7 +466,7 @@ function Map3DView({
               const emissive = isSelected ? 0x00ff88 : 0x000000;
               const emissiveIntensity = isSelected ? 0.3 : 0;
               const fGeo = new T.BoxGeometry(bw * (1 - f * 0.02), floorH, bd * (1 - f * 0.02));
-              const fMat = new T.MeshStandardMaterial({ color: floorColor, roughness: 0.4, metalness: 0.3, emissive, emissiveIntensity });
+              const fMat = new T.MeshStandardMaterial({ color: floorColor, roughness: 0.35, metalness: 0.35, emissive, emissiveIntensity });
               const fMesh = new T.Mesh(fGeo, fMat);
               fMesh.position.set(x, f * floorH + floorH / 2, z);
               fMesh.castShadow = true;
@@ -474,13 +476,13 @@ function Map3DView({
               floorMeshes.push(fMesh);
               raycasterTargets.push(fMesh);
               const fEdge = new T.EdgesGeometry(fGeo);
-              const fEdgeMat = new T.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 });
+              const fEdgeMat = new T.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 });
               const fEdgeLine = new T.LineSegments(fEdge, fEdgeMat);
               fEdgeLine.position.copy(fMesh.position);
               scene.add(fEdgeLine);
             }
-            const roofW = bw * 1.03;
-            const roofD = bd * 1.03;
+            const roofW = bw * 1.05;
+            const roofD = bd * 1.05;
             const roofGeo = new T.BoxGeometry(roofW, roofH, roofD);
             const roofMat = new T.MeshStandardMaterial({ color: roofColor, roughness: 0.7, metalness: 0.1 });
             const roofMesh = new T.Mesh(roofGeo, roofMat);
@@ -557,21 +559,22 @@ function Map3DView({
         };
         window.addEventListener('resize', onResize);
 
-        return () => {
+        cleanupRef.current = () => {
           mounted = false;
           window.removeEventListener('resize', onResize);
           cancelAnimationFrame(animId);
           controls.dispose();
           renderer.dispose();
-          if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
+          try { if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement); } catch {}
           sceneRef.current = null;
+          cleanupRef.current = null;
         };
       } catch (err) {
         console.error('3D init failed:', err);
       }
     })();
 
-    return () => { mounted = false; };
+    return () => { if (cleanupRef.current) cleanupRef.current(); };
   }, [show, blocks, buildings, projectGeometries, onSelect, selectedType, selectedId]);
 
   if (!show) return null;
@@ -1793,7 +1796,7 @@ export default function MapsPage() {
         supabase.from('blocks').select('*').limit(500),
         supabase.from('buildings').select('*').limit(500),
         supabase.from('floors').select('*').limit(500),
-        supabase.from('units').select('id, unit_code, unit_type, floor_number, status, area_sqm, bedrooms, price, sale_price, lat, lng, geometry, floor_id, block_id, project_id, is_active').eq('is_active', true).limit(1000),
+        supabase.from('units').select('id, unit_code, unit_type, floor_number, status, area_sqm, bedrooms, price, lat, lng, geometry, floor_id, block_id, project_id, is_active').eq('is_active', true).limit(1000),
         supabase.from('map_annotations').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('map_views').select('*').order('created_at', { ascending: false }).limit(50),
         supabase.from('virtual_tours').select('*, units!left(unit_code)').limit(200),
