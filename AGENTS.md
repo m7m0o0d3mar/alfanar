@@ -2,7 +2,7 @@
 
 ## Project Structure
 - `D:\OpenCode\ERP\erp-frontend\` — React + Vite + TypeScript + Tailwind frontend
-- `D:\OpenCode\ERP\database\` — SQL migration files (001–057)
+- `D:\OpenCode\ERP\database\` — SQL migration files (001–114)
 - `D:\OpenCode\ERP\scripts\` — Node.js utility scripts
 
 ## Commands (run from `erp-frontend/`)
@@ -24,17 +24,30 @@
 - `supabase db query --linked` — escape hatch for raw SQL when REST blocks `exec_sql`
 - `auth.uid()` returns null with service key → `is_admin()` unusable in SECURITY DEFINER functions via REST
 
-## Bidirectional Sync (migration 110-111)
-- `project_geometries` (unit) ↔ `units` via `geometry_id` FK + triggers
-- `project_geometries` (building) ↔ `buildings` via `geometry_id` FK + triggers
-- `project_geometries` (floor) ↔ `floors` via `geometry_id` FK + triggers
-- Triggers: `sync_geometry_to_unit`, `sync_unit_to_geometry`, `sync_geometry_to_building`, `sync_geometry_to_floor`
-- `pg_trigger_depth() > 1` prevents infinite recursion
-- `sync_geometry_to_unit` extracts lat/lng from polygon centroid for marker display
-- `sync_unit_to_geometry` skips Point-only units (markers already cover them)
-- `normalize_unit_type()` maps variations like `2BR` → `apartment`
-- To run SQL directly: `Get-Content database/XXX.sql | supabase db query --linked`
+## Migrations
+- To run SQL directly: `Get-Content database/XXX.sql -Raw | supabase db query --linked`
 - Admin cleanup: `scripts/cleanup_test_data.sql`
+- Existing: `Get-Content database\112_add_delete_policies.sql -Raw | supabase db query --linked`
+- New RPC: `Get-Content database\114_generate_project_units.sql -Raw | supabase db query --linked`
+
+## Unit Generation (migration 114)
+- **ALL sync triggers DROPPED** (113): `sync_geometry_to_unit`, `sync_unit_to_geometry`, `sync_geometry_to_building`, `sync_geometry_to_floor` — they caused batch-insert failures in REST API due to SECURITY DEFINER + `auth.uid()` issues.
+- **`generate_project_units` function**: Server-side SECURITY DEFINER function that inserts into `units` bypassing RLS.
+  - Called via `supabase.rpc('generate_project_units', { p_project_id, p_unit_data, p_mode })`
+  - `p_mode = 'append'` — add new units, skip conflicts
+  - `p_mode = 'replace'` — DELETE existing project units first, then insert
+  - `p_unit_data` is a JSON array of `{ unit_code, unit_type, geometry (JSON string), status, is_active }`
+  - The frontend computes unit polygon geometries (using Leaflet's `L.geoJSON().getBounds()` to subdivide parent geometry into 2×2 grid)
+- App code in `GeometryInputPanel.tsx` `autoGenerateUnits()` and `MapsPage.tsx` `generateAndSyncUnits()` both call this RPC.
+- UI provides two buttons: **Append** (keep existing, add new) and **Replace** (delete all + recreate)
+- `unit_code` = `labelPrefix-001` where prefix = first 6 chars of parent geometry's label (sanitized)
+
+## 3D View
+- `Map3DView` in `MapsPage.tsx` renders Three.js scene
+- Site geometries: flat semi-transparent slab (0.08 height) with outline
+- Building geometries: stacked 3-floor boxes
+- Box sizes capped at 8 units max, scaled down by 0.001 from degrees
+- Labels as canvas sprites above each element
 
 ## Deployment
 - **Cloudflare Pages**: `https://alfanar-erp.pages.dev` and `https://alfanar-c0q.pages.dev`

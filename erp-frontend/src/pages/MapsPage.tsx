@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { projectGeometriesApi } from '../services/api';
-import { MapContainer, TileLayer, Marker, Popup, useMap, ScaleControl, GeoJSON, Polygon, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, ScaleControl, GeoJSON, Polygon, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
@@ -14,7 +14,7 @@ import {
   Pencil, Eye, Trash2, Sun, Moon, QrCode, ChevronDown, ChevronRight,
   Home, Box, PanelRight, Download, Upload, Save, Plus, Edit3, X, Check,
   RotateCw, ZoomIn, ZoomOut, Target, Grid3x3, Type, MousePointer, FileText,
-  Ruler, Footprints, Camera, ChevronLeft, Image, FileSpreadsheet,
+  Ruler, Footprints, Camera, ChevronLeft, Image, FileSpreadsheet, Filter,
 } from 'lucide-react';
 import QRCodeModal from '../components/QRCodeModal';
 import { useToast } from '../context/ToastContext';
@@ -93,7 +93,7 @@ interface MapFloor {
 }
 interface MapUnit {
   id: string; unit_code: string; unit_type: string; floor_number?: number;
-  status: string; area_sqm?: number; bedrooms?: number; price?: number;
+  status: string; area_sqm?: number; bedrooms?: number; price?: number; sale_price?: number;
   lat?: number; lng?: number; geometry?: any; floor_id?: string;
   block_id?: string; project_id: string;
 }
@@ -122,7 +122,7 @@ function createDivIcon(status: string, label: string, size = 32, colors = DEFAUL
   });
 }
 
-function UnitClusterLayer({ units, colors, onUnitClick }: { units: MapUnit[]; colors: Record<string, string>; onUnitClick?: (unitId: string) => void }) {
+function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { units: MapUnit[]; colors: Record<string, string>; onUnitClick?: (unitId: string) => void; showLabels?: boolean }) {
   const map = useMap();
   useEffect(() => {
     if (units.length === 0) return;
@@ -144,30 +144,47 @@ function UnitClusterLayer({ units, colors, onUnitClick }: { units: MapUnit[]; co
       },
     });
     const navigateFn = onUnitClick ? `window.__mapUnitNav && window.__mapUnitNav('` : '';
+    const labelGroup = L.layerGroup();
     for (const u of units.slice(0, 500)) {
       if (!u.lat || !u.lng) continue;
-      const icon = createDivIcon(u.status, 'U', 24, colors);
+      const shortLabel = u.unit_code ? u.unit_code.length > 4 ? u.unit_code.slice(0, 4) : u.unit_code.slice(-4) : 'U';
+      const statusColor = colors[u.status] || '#6b7280';
+      const displayCode = u.unit_code || '';
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="background:${statusColor};width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px ${statusColor}66;border:2px solid #fff;color:#fff;font-weight:700;font-size:10px;cursor:pointer">${shortLabel}</div>${showLabels ? `<div style="text-align:center;font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;margin-top:1px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2)">${displayCode}</div>` : ''}`,
+        iconSize: showLabels ? [80, 44] : [36, 36],
+        iconAnchor: showLabels ? [40, 44] : [18, 18],
+      });
       const marker = L.marker([u.lat, u.lng], { icon });
       const unitId = u.id;
-      marker.bindPopup(`
-        <div style="min-width:150px">
-          <h3 style="font-weight:600;font-size:13px">Unit ${u.unit_code}</h3>
-          <div style="margin-top:4px;font-size:12px">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colors[u.status] || '#6b7280'};margin-right:4px"></span>
-            <span style="text-transform:capitalize">${u.status || 'available'}</span>
-            ${u.unit_type ? `<br/><span style="color:#6b7280">${u.unit_type}</span>` : ''}
-            ${u.area_sqm ? `<br/>${u.area_sqm} m²` : ''}
-            ${u.bedrooms != null ? `<br/>${u.bedrooms} BR` : ''}
-            ${u.price ? `<br/><strong>${u.price.toLocaleString()} SAR</strong>` : ''}
-          </div>
-          ${onUnitClick ? `<button onclick="window.__mapUnitNav('${unitId}')" style="margin-top:8px;width:100%;padding:4px 8px;background:#6366f1;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer;font-weight:500">View Details →</button>` : ''}
+      marker.bindTooltip(`
+        <div style="font-size:12px;font-weight:600">${u.unit_code}
+          <span style="font-weight:400;color:#6b7280;font-size:11px">${u.unit_type ? `· ${u.unit_type}` : ''}${u.status ? `· ${u.status}` : ''}</span>
         </div>
-      `);
+      `, { direction: 'top', offset: L.point(0, -22), sticky: true });
+      marker.bindPopup(`
+        <div style="min-width:220px;font-family:system-ui,sans-serif">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
+            <span style="font-weight:700;font-size:15px">${u.unit_code}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;font-size:12px;color:#374151">
+            <span style="color:#6b7280">Type:</span><span>${u.unit_type || '—'}</span>
+            <span style="color:#6b7280">Status:</span><span style="color:${statusColor};font-weight:500">${u.status || '—'}</span>
+            ${u.area_sqm != null ? `<span style="color:#6b7280">Area:</span><span>${u.area_sqm} m²</span>` : ''}
+            ${u.bedrooms != null ? `<span style="color:#6b7280">Bedrooms:</span><span>${u.bedrooms}</span>` : ''}
+            ${u.floor_number != null ? `<span style="color:#6b7280">Floor:</span><span>${u.floor_number}</span>` : ''}
+            ${u.sale_price != null ? `<span style="color:#6b7280">Price:</span><span>${Number(u.sale_price).toLocaleString()} SAR</span>` : (u.price != null ? `<span style="color:#6b7280">Price:</span><span>${u.price.toLocaleString()} SAR</span>` : '')}
+          </div>
+          ${onUnitClick ? `<button onclick="window.__mapUnitNav('${unitId}')" style="margin-top:8px;width:100%;padding:6px;background:#6366f1;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500">View Details →</button>` : ''}
+        </div>
+      `, { maxWidth: 280 });
       cluster.addLayer(marker);
     }
     map.addLayer(cluster);
     return () => { map.removeLayer(cluster); };
-  }, [map, units, onUnitClick]);
+  }, [map, units, onUnitClick, showLabels]);
   return null;
 }
 
@@ -187,9 +204,9 @@ function polygonArea(geom: any): number {
 
 // ---------- 3D Viewer Component ----------
 function Map3DView({
-  blocks, buildings, show, onSelect, statusColors: sc, selectedType, selectedId,
+  blocks, buildings, projectGeometries = [], show, onSelect, statusColors: sc, selectedType, selectedId,
 }: {
-  blocks: MapBlock[]; buildings: MapBuilding[]; show: boolean; onSelect?: (type: string, id: string) => void; statusColors?: Record<string, string>;
+  blocks: MapBlock[]; buildings: MapBuilding[]; projectGeometries?: any[]; show: boolean; onSelect?: (type: string, id: string) => void; statusColors?: Record<string, string>;
   selectedType?: string; selectedId?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -254,92 +271,211 @@ function Map3DView({
         ground.receiveShadow = true;
         scene.add(ground);
 
-        // Block boxes
+        // Block boxes with real geospatial positioning
         const raycasterTargets: any[] = [];
         const dc = sc || DEFAULT_STATUS_COLORS;
         const colors: Record<string, number> = {};
         for (const [k, v] of Object.entries(dc)) { colors[k] = parseInt(v.replace('#', ''), 16); }
 
-        const items = [...blocks.map(b => ({ type: 'block' as const, data: b })), ...buildings.map(b => ({ type: 'building' as const, data: b }))];
-        const blockSize = items.length > 0 ? Math.min(6, Math.max(3, 20 / Math.sqrt(items.length))) : 4;
+        const geomItems = projectGeometries.filter(g => g.geometry).map(g => {
+          const gtype = g.geometry_type || 'site';
+          let clat: number | null = (g.properties as any)?.center_lat || null;
+          let clng: number | null = (g.properties as any)?.center_lng || null;
+          if (!clat || !clng) {
+            try {
+              const b = L.geoJSON(g.geometry).getBounds();
+              clat = (b.getNorth() + b.getSouth()) / 2;
+              clng = (b.getEast() + b.getWest()) / 2;
+            } catch { /* use null */ }
+          }
+          const defaultFloors = gtype === 'site' ? 1 : gtype === 'building' ? 3 : 1;
+          return {
+            type: gtype as 'site' | 'building' | 'unit',
+            data: {
+              id: g.id,
+              name_en: g.label_en || gtype,
+              status: g.status || 'active',
+              center_lat: clat,
+              center_lng: clng,
+              geometry: g.geometry,
+              floor_count: (g.properties as any)?.floor_count || defaultFloors,
+            },
+          };
+        });
+        const items = [...geomItems];
+        const coordItems = items.filter(i => i.data.center_lat && i.data.center_lng);
+        const hasCoords = coordItems.length > 1;
+        let centerLat = 24.75, centerLng = 46.75;
+        if (coordItems.length > 0) {
+          centerLat = coordItems.reduce((s, i) => s + (i.data.center_lat || 0), 0) / coordItems.length;
+          centerLng = coordItems.reduce((s, i) => s + (i.data.center_lng || 0), 0) / coordItems.length;
+        }
+        const latM = 111320;
+        const lngM = 111320 * Math.cos(centerLat * Math.PI / 180);
+
+        // Pre-compute positions to determine spread for camera
+        const positions: { x: number; z: number }[] = [];
+        items.forEach((item) => {
+          const d = item.data;
+          if (hasCoords && d.center_lat && d.center_lng) {
+            positions.push({ x: (d.center_lng - centerLng) * lngM, z: (d.center_lat - centerLat) * latM });
+          } else {
+            const cols = Math.ceil(Math.sqrt(items.length));
+            const row = Math.floor(positions.length / cols);
+            const col = positions.length % cols;
+            positions.push({ x: (col - cols / 2) * 8, z: (row - cols / 2) * 8 });
+          }
+        });
+        const xs = positions.map(p => p.x), zs = positions.map(p => p.z);
+        const spreadX = xs.length > 1 ? Math.max(...xs) - Math.min(...xs) : 10;
+        const spreadZ = zs.length > 1 ? Math.max(...zs) - Math.min(...zs) : 10;
+        const maxSpread = Math.max(spreadX, spreadZ, 1);
+        const camDist = Math.min(200, Math.max(20, maxSpread * 0.7 + 15));
+        camera.position.set(0, camDist * 0.6, camDist);
+        controls.target.set(0, 0, 0);
+
+        // Resize grid and ground to match spread
+        const gridSize = Math.ceil(maxSpread / 10) * 10 + 10;
+        gridHelper.scale.set(gridSize / 40, 1, gridSize / 40);
+        groundGeo.dispose();
+        const newGround = new T.PlaneGeometry(gridSize + 10, gridSize + 10);
+        ground.geometry = newGround;
+
+        // Remove previously added objects to prevent memory leaks on re-render
+        const keep = new Set([ambient, dirLight, fillLight, gridHelper, ground]);
+        for (let ci = scene.children.length - 1; ci >= 0; ci--) {
+          const child = scene.children[ci];
+          if (!keep.has(child)) {
+            scene.remove(child);
+            if ((child as any).geometry) (child as any).geometry.dispose();
+            if ((child as any).material) (child as any).material.dispose();
+          }
+        }
 
         items.forEach((item, i) => {
           const d = item.data;
-          const cols = Math.ceil(Math.sqrt(items.length));
-          const row = Math.floor(i / cols);
-          const col = i % cols;
-          const x = (col - cols / 2) * blockSize * 1.3;
-          const z = (row - cols / 2) * blockSize * 1.3;
-          const floorH = 0.35;
-          const roofH = 0.15;
-          const floorCount = 'floor_count' in d ? (d as any).floor_count || 1 : 'floors' in d ? (d as any).floors || 1 : 1;
-          const bw = blockSize * 0.85;
-          const bd = blockSize * 0.6;
+          const pos = positions[i];
+          const x = pos.x, z = pos.z;
+
           const baseColor = colors[d.status] || 0x6b7280;
-          const roofColor = 0x555555;
-
           const isSelected = d.id === selectedId && item.type === selectedType;
-          // Per-floor stacked boxes with alternating shades
-          const floorMeshes: any[] = [];
-          for (let f = 0; f < floorCount; f++) {
-            const shade = f % 2 === 0 ? 1.0 : 0.85;
-            const r = ((baseColor >> 16) & 0xff) * shade;
-            const g = ((baseColor >> 8) & 0xff) * shade;
-            const bl = (baseColor & 0xff) * shade;
-            let floorColor = (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(bl);
-            if (isSelected) floorColor = 0x00ff88;
-            const emissive = isSelected ? 0x00ff88 : 0x000000;
-            const emissiveIntensity = isSelected ? 0.3 : 0;
-            const fGeo = new T.BoxGeometry(bw * (1 - f * 0.01), floorH, bd * (1 - f * 0.01));
-            const fMat = new T.MeshStandardMaterial({ color: floorColor, roughness: 0.5, metalness: 0.2, emissive, emissiveIntensity });
-            const fMesh = new T.Mesh(fGeo, fMat);
-            fMesh.position.set(x, f * floorH + floorH / 2, z);
-            fMesh.castShadow = true;
-            fMesh.receiveShadow = true;
-            fMesh.userData = { type: item.type, id: d.id, label: d.name_en, floor: f + 1 };
-            scene.add(fMesh);
-            floorMeshes.push(fMesh);
-            raycasterTargets.push(fMesh);
+          const isSite = item.type === 'site';
 
-            // Horizontal edge lines per floor
-            const fEdge = new T.EdgesGeometry(fGeo);
-            const fEdgeMat = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08 });
-            const fEdgeLine = new T.LineSegments(fEdge, fEdgeMat);
-            fEdgeLine.position.copy(fMesh.position);
-            scene.add(fEdgeLine);
+          let bw: number, bd: number;
+          if (hasCoords && d.center_lat && d.center_lng && d.geometry) {
+            try {
+              const bounds = L.geoJSON(d.geometry).getBounds();
+              bw = (bounds.getEast() - bounds.getWest()) * lngM * 0.001;
+              bd = (bounds.getNorth() - bounds.getSouth()) * latM * 0.001;
+              if (!isSite) { bw *= 0.7; bd *= 0.7; }
+              bw = Math.max(0.8, Math.min(bw, 8));
+              bd = Math.max(0.6, Math.min(bd, 6));
+            } catch { bw = 3; bd = 2; }
+          } else {
+            bw = Math.min(8, Math.max(2, maxSpread * 0.08));
+            bd = Math.min(6, Math.max(1.5, maxSpread * 0.06));
           }
 
-          // Roof cap (thinner, slightly overhanging, darker)
-          const roofW = bw * 1.02;
-          const roofD = bd * 1.02;
-          const roofGeo = new T.BoxGeometry(roofW, roofH, roofD);
-          const roofMat = new T.MeshStandardMaterial({ color: roofColor, roughness: 0.7, metalness: 0.1 });
-          const roofMesh = new T.Mesh(roofGeo, roofMat);
-          const totalH = floorCount * floorH;
-          roofMesh.position.set(x, totalH + roofH / 2, z);
-          roofMesh.castShadow = true;
-          roofMesh.receiveShadow = true;
-          roofMesh.userData = { type: item.type, id: d.id, label: d.name_en + ' roof' };
-          scene.add(roofMesh);
+          if (isSite) {
+            const slabMat = new T.MeshStandardMaterial({ color: baseColor, roughness: 0.7, metalness: 0.05, transparent: true, opacity: 0.6, side: T.DoubleSide });
+            const slab = new T.Mesh(new T.BoxGeometry(bw, 0.08, bd), slabMat);
+            slab.position.set(x, 0.04, z);
+            slab.receiveShadow = true;
+            slab.userData = { type: item.type, id: d.id, label: d.name_en };
+            scene.add(slab);
+            raycasterTargets.push(slab);
 
-          // Label sprite
-          const canvas = document.createElement('canvas');
-          canvas.width = 256; canvas.height = 64;
-          const ctx = canvas.getContext('2d')!;
-          ctx.fillStyle = 'rgba(0,0,0,0.6)';
-          ctx.roundRect(0, 0, 256, 64, 8);
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 18px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText(d.name_en, 128, 38);
+            const edgeMat = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 });
+            const edges = new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(bw, 0.08, bd)), edgeMat);
+            edges.position.copy(slab.position);
+            scene.add(edges);
 
-          const texture = new T.CanvasTexture(canvas);
-          const spriteMat = new T.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
-          const sprite = new T.Sprite(spriteMat);
-          sprite.position.set(x, totalH + roofH + 1.0, z);
-          sprite.scale.set(4, 1, 1);
-          scene.add(sprite);
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 64;
+            const ctx = canvas.getContext('2d')!;
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.beginPath();
+            ctx.moveTo(8, 0); ctx.lineTo(248, 0);
+            ctx.quadraticCurveTo(256, 0, 256, 8);
+            ctx.lineTo(256, 56); ctx.quadraticCurveTo(256, 64, 248, 64);
+            ctx.lineTo(8, 64); ctx.quadraticCurveTo(0, 64, 0, 56);
+            ctx.lineTo(0, 8); ctx.quadraticCurveTo(0, 0, 8, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(d.name_en || '', 128, 38);
+            const tex = new T.CanvasTexture(canvas);
+            const sprite = new T.Sprite(new T.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+            sprite.position.set(x, 0.5, z);
+            sprite.scale.set(3, 0.75, 1);
+            scene.add(sprite);
+          } else {
+            const floorH = 0.35;
+            const roofH = 0.15;
+            const floorCount = (d as any).floor_count || 3;
+            const roofColor = 0x555555;
+            const floorMeshes: any[] = [];
+            for (let f = 0; f < floorCount; f++) {
+              const shade = f % 2 === 0 ? 1.0 : 0.85;
+              const r = ((baseColor >> 16) & 0xff) * shade;
+              const g = ((baseColor >> 8) & 0xff) * shade;
+              const bl = (baseColor & 0xff) * shade;
+              let floorColor = (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(bl);
+              if (isSelected) floorColor = 0x00ff88;
+              const emissive = isSelected ? 0x00ff88 : 0x000000;
+              const emissiveIntensity = isSelected ? 0.3 : 0;
+              const fGeo = new T.BoxGeometry(bw * (1 - f * 0.01), floorH, bd * (1 - f * 0.01));
+              const fMat = new T.MeshStandardMaterial({ color: floorColor, roughness: 0.5, metalness: 0.2, emissive, emissiveIntensity });
+              const fMesh = new T.Mesh(fGeo, fMat);
+              fMesh.position.set(x, f * floorH + floorH / 2, z);
+              fMesh.castShadow = true;
+              fMesh.receiveShadow = true;
+              fMesh.userData = { type: item.type, id: d.id, label: d.name_en, floor: f + 1 };
+              scene.add(fMesh);
+              floorMeshes.push(fMesh);
+              raycasterTargets.push(fMesh);
+              const fEdge = new T.EdgesGeometry(fGeo);
+              const fEdgeMat = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08 });
+              const fEdgeLine = new T.LineSegments(fEdge, fEdgeMat);
+              fEdgeLine.position.copy(fMesh.position);
+              scene.add(fEdgeLine);
+            }
+            const roofW = bw * 1.02;
+            const roofD = bd * 1.02;
+            const roofGeo = new T.BoxGeometry(roofW, roofH, roofD);
+            const roofMat = new T.MeshStandardMaterial({ color: roofColor, roughness: 0.7, metalness: 0.1 });
+            const roofMesh = new T.Mesh(roofGeo, roofMat);
+            const totalH = floorCount * floorH;
+            roofMesh.position.set(x, totalH + roofH / 2, z);
+            roofMesh.castShadow = true;
+            roofMesh.receiveShadow = true;
+            roofMesh.userData = { type: item.type, id: d.id, label: d.name_en + ' roof' };
+            scene.add(roofMesh);
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 64;
+            const ctx = canvas.getContext('2d')!;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.beginPath();
+            ctx.moveTo(8, 0); ctx.lineTo(248, 0);
+            ctx.quadraticCurveTo(256, 0, 256, 8);
+            ctx.lineTo(256, 56); ctx.quadraticCurveTo(256, 64, 248, 64);
+            ctx.lineTo(8, 64); ctx.quadraticCurveTo(0, 64, 0, 56);
+            ctx.lineTo(0, 8); ctx.quadraticCurveTo(0, 0, 8, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(d.name_en, 128, 38);
+            const texture = new T.CanvasTexture(canvas);
+            const spriteMat = new T.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+            const sprite = new T.Sprite(spriteMat);
+            sprite.position.set(x, totalH + roofH + 1.0, z);
+            sprite.scale.set(4, 1, 1);
+            scene.add(sprite);
+          }
         });
 
         // Click handler
@@ -399,7 +535,7 @@ function Map3DView({
     })();
 
     return () => { mounted = false; };
-  }, [show, blocks, buildings, onSelect, selectedType, selectedId]);
+  }, [show, blocks, buildings, projectGeometries, onSelect, selectedType, selectedId]);
 
   if (!show) return null;
   return (
@@ -539,7 +675,12 @@ function Walkthrough3DView({
             canvas.width = sc; canvas.height = sc;
             const ctx = canvas.getContext('2d')!;
             ctx.fillStyle = 'rgba(0,0,0,0.7)';
-            ctx.roundRect(8, 8, sc - 16, sc - 16, 12);
+            ctx.beginPath(); ctx.moveTo(20, 8); ctx.lineTo(sc - 20, 8);
+            ctx.quadraticCurveTo(sc - 8, 8, sc - 8, 20);
+            ctx.lineTo(sc - 8, sc - 20); ctx.quadraticCurveTo(sc - 8, sc - 8, sc - 20, sc - 8);
+            ctx.lineTo(20, sc - 8); ctx.quadraticCurveTo(8, sc - 8, 8, sc - 20);
+            ctx.lineTo(8, 20); ctx.quadraticCurveTo(8, 8, 20, 8);
+            ctx.closePath();
             ctx.fill();
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 16px sans-serif';
@@ -586,7 +727,12 @@ function Walkthrough3DView({
         lCanvas.width = 512; lCanvas.height = 64;
         const lCtx = lCanvas.getContext('2d')!;
         lCtx.fillStyle = 'rgba(99,102,241,0.9)';
-        lCtx.roundRect(0, 0, 512, 64, 8);
+        lCtx.beginPath(); lCtx.moveTo(8, 0); lCtx.lineTo(504, 0);
+        lCtx.quadraticCurveTo(512, 0, 512, 8);
+        lCtx.lineTo(512, 56); lCtx.quadraticCurveTo(512, 64, 504, 64);
+        lCtx.lineTo(8, 64); lCtx.quadraticCurveTo(0, 64, 0, 56);
+        lCtx.lineTo(0, 8); lCtx.quadraticCurveTo(0, 0, 8, 0);
+        lCtx.closePath();
         lCtx.fill();
         lCtx.fillStyle = '#ffffff';
         lCtx.font = 'bold 16px sans-serif';
@@ -880,6 +1026,7 @@ function PropertyPanel({ selectedType, selectedId, onClose, onUpdate, onStartBou
   const [loading, setLoading] = useState(true);
   const [reports, setReports] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const toast = useToast();
@@ -887,13 +1034,22 @@ function PropertyPanel({ selectedType, selectedId, onClose, onUpdate, onStartBou
   useEffect(() => {
     setLoading(true);
     setReports([]);
-    const table = selectedType === 'project' ? 'projects' : selectedType === 'block' ? 'blocks' : selectedType === 'building' ? 'buildings' : selectedType === 'floor' ? 'floors' : selectedType === 'unit' ? 'units' : null;
-    if (!table) { setLoading(false); return; }
     (async () => {
       try {
-        const { data: d } = await supabase.from(table).select('*').eq('id', selectedId).single();
+        const tableMap: Record<string, string> = { project: 'projects', block: 'blocks', building: 'buildings', floor: 'floors', unit: 'units', site: 'project_geometries' };
+        const table = tableMap[selectedType];
+        if (!table) { setLoading(false); return; }
+        let d: any = null;
+        if (table !== 'project_geometries') {
+          const { data } = await supabase.from(table).select('*').eq('id', selectedId).maybeSingle();
+          if (data) d = data;
+        }
+        if (!d) {
+          const { data } = await supabase.from('project_geometries').select('*').eq('id', selectedId).maybeSingle();
+          if (data) d = { ...data, geometry_type: data.geometry_type || selectedType };
+        }
         setData(d);
-        if (selectedType === 'project') {
+        if (selectedType === 'project' && d) {
           const { data: r } = await supabase.from('daily_reports').select('id, report_date, title, template:report_templates!template_id(name_en)').eq('project_id', selectedId).order('report_date', { ascending: false }).limit(5);
           setReports(r || []);
         }
@@ -953,10 +1109,124 @@ function PropertyPanel({ selectedType, selectedId, onClose, onUpdate, onStartBou
               </div>
             )}
             {selectedType === 'project' && data && (
-              <button className="btn-secondary btn-xs w-full mt-1 text-center flex items-center justify-center gap-1"
-                onClick={() => navigate(`/daily-reports`)}>
-                <FileText size={10} /> View All Reports
-              </button>
+              <>
+                <button className="btn-secondary btn-xs w-full mt-1 text-center flex items-center justify-center gap-1"
+                  onClick={() => navigate(`/daily-reports`)}>
+                  <FileText size={10} /> View All Reports
+                </button>
+                <div className="flex gap-1 pt-1">
+                  <button className="btn-primary btn-xs flex-1 text-center flex items-center justify-center gap-1"
+                    disabled={generating}
+                    onClick={async () => {
+                      setGenerating(true);
+                      try { toast.info('Generating units from all geometries...');
+                        const count = await generateAndSyncUnits(data.id, 'append');
+                        if (count === 0) { toast.error('No units generated — no geometries found'); return; }
+                        toast.success(`${count} units added`); onUpdate();
+                      } catch (err: any) { toast.error(err?.message || 'Generation failed'); }
+                      setGenerating(false);
+                    }}>
+                    <Grid3x3 size={10} /> {generating ? '...' : 'Append'}
+                  </button>
+                  <button className="btn-sm flex-1 text-center flex items-center justify-center gap-1"
+                    style={{ background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, padding: '4px 8px', cursor: 'pointer' }}
+                    disabled={generating}
+                    onClick={async () => {
+                      setGenerating(true);
+                      try { toast.info('Replacing all units...');
+                        const count = await generateAndSyncUnits(data.id, 'replace');
+                        if (count === 0) { toast.error('No units generated'); return; }
+                        toast.success(`${count} units created (replaced)`); onUpdate();
+                      } catch (err: any) { toast.error(err?.message || 'Generation failed'); }
+                      setGenerating(false);
+                    }}>
+                    <Grid3x3 size={10} /> {generating ? '...' : 'Replace'}
+                  </button>
+                </div>
+              </>
+            )}
+            {(selectedType === 'building' || selectedType === 'block' || selectedType === 'site') && data?.geometry && (
+              <div className="pt-2 border-t space-y-2" style={{ borderColor: 'var(--color-border)' }}>
+                <div className="flex gap-1">
+                  <button className="btn-primary btn-xs flex-1 flex items-center justify-center gap-1"
+                    disabled={generating}
+                    onClick={async () => {
+                      setGenerating(true);
+                      try {
+                        const prefix = data.name_en || data.block_code || 'Unit';
+                        const generated = generateUnitsFromGeometry(data.geometry, prefix, 2, 2);
+                        if (generated.length === 0) { toast.error('Failed to generate units from geometry'); return; }
+                        const rows = generated.map((u: any) => {
+                          const coords = u.geometry?.coordinates?.[0];
+                          let lat: string | null = null;
+                          let lng: string | null = null;
+                          if (coords?.length >= 4) {
+                            lat = String(coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length);
+                            lng = String(coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length);
+                          }
+                          return {
+                            unit_code: (u.label_en || `U-${1}`) as string,
+                            unit_type: 'apartment',
+                            geometry: JSON.stringify(u.geometry),
+                            status: 'available',
+                            is_active: 'true',
+                            lat,
+                            lng,
+                          };
+                        });
+                        const { data: count, error } = await supabase.rpc('generate_project_units', {
+                          p_project_id: data.project_id,
+                          p_unit_data: rows,
+                          p_mode: 'append',
+                        });
+                        if (error) throw error;
+                        toast.success(`${count || rows.length} units added`); onUpdate();
+                      } catch (err: any) { toast.error(err?.message || 'Generation failed'); }
+                      setGenerating(false);
+                    }}>
+                    <Grid3x3 size={10} /> Append
+                  </button>
+                  <button className="btn-sm flex-1 flex items-center justify-center gap-1"
+                    style={{ background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, padding: '4px 8px', cursor: 'pointer' }}
+                    disabled={generating}
+                    onClick={async () => {
+                      setGenerating(true);
+                      try {
+                        const prefix = data.name_en || data.block_code || 'Unit';
+                        const generated = generateUnitsFromGeometry(data.geometry, prefix, 2, 2);
+                        if (generated.length === 0) { toast.error('Failed to generate units from geometry'); return; }
+                        const rows = generated.map((u: any) => {
+                          const coords = u.geometry?.coordinates?.[0];
+                          let lat: string | null = null;
+                          let lng: string | null = null;
+                          if (coords?.length >= 4) {
+                            lat = String(coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length);
+                            lng = String(coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length);
+                          }
+                          return {
+                            unit_code: (u.label_en || `U-${1}`) as string,
+                            unit_type: 'apartment',
+                            geometry: JSON.stringify(u.geometry),
+                            status: 'available',
+                            is_active: 'true',
+                            lat,
+                            lng,
+                          };
+                        });
+                        const { data: count, error } = await supabase.rpc('generate_project_units', {
+                          p_project_id: data.project_id,
+                          p_unit_data: rows,
+                          p_mode: 'replace',
+                        });
+                        if (error) throw error;
+                        toast.success(`${count || rows.length} units replaced`); onUpdate();
+                      } catch (err: any) { toast.error(err?.message || 'Generation failed'); }
+                      setGenerating(false);
+                    }}>
+                    <Grid3x3 size={10} /> Replace
+                  </button>
+                </div>
+              </div>
             )}
             {selectedType === 'floor' && (
               <div className="pt-2 border-t space-y-2" style={{ borderColor: 'var(--color-border)' }}>
@@ -994,6 +1264,86 @@ function PropertyPanel({ selectedType, selectedId, onClose, onUpdate, onStartBou
       </div>
     </div>
   );
+}
+
+function generateUnitsFromGeometry(geometry: any, labelPrefix: string, cols = 4, rows = 3): Record<string, unknown>[] {
+  try {
+    const bounds = L.geoJSON(geometry).getBounds();
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    const latStep = (ne.lat - sw.lat) / rows;
+    const lngStep = (ne.lng - sw.lng) / cols;
+    const units: Record<string, unknown>[] = [];
+    let idx = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        idx++;
+        const unitPolygon = {
+          type: 'Polygon',
+          coordinates: [[
+            [sw.lng + c * lngStep, sw.lat + r * latStep],
+            [sw.lng + (c + 1) * lngStep, sw.lat + r * latStep],
+            [sw.lng + (c + 1) * lngStep, sw.lat + (r + 1) * latStep],
+            [sw.lng + c * lngStep, sw.lat + (r + 1) * latStep],
+            [sw.lng + c * lngStep, sw.lat + r * latStep],
+          ]],
+        };
+        units.push({
+          geometry_type: 'unit',
+          label_en: `${labelPrefix}-${String(idx).padStart(3, '0')}`,
+          geometry: unitPolygon,
+          level: 3,
+          sort_order: idx,
+          status: 'active',
+          properties: { generated: true, col: c + 1, row: r + 1 },
+        });
+      }
+    }
+    return units;
+  } catch {
+    return [];
+  }
+}
+
+async function generateAndSyncUnits(projectId: string, mode: 'append' | 'replace' = 'append'): Promise<number> {
+  try {
+    const { data: geoms } = await supabase.from('project_geometries').select('id, geometry, label_en, project_id')
+      .eq('project_id', projectId).in('geometry_type', ['site', 'building', 'floor']);
+    if (!geoms || geoms.length === 0) { console.warn('generateAndSyncUnits: no geometries found for', projectId); return 0; }
+    const unitRows: Record<string, unknown>[] = [];
+    for (const g of geoms) {
+      if (!g.geometry) continue;
+      const prefix = g.label_en ? g.label_en.slice(0, 6).replace(/[^a-zA-Z0-9_]/g, '') : 'U';
+      const generated = generateUnitsFromGeometry(g.geometry, prefix, 2, 2);
+      for (const u of generated) {
+        const g = u.geometry as any;
+        const coords = g?.coordinates?.[0];
+        let lat: number | undefined;
+        let lng: number | undefined;
+        if (coords?.length >= 4) {
+          lat = coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length;
+          lng = coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length;
+        }
+        unitRows.push({
+          unit_code: (u.label_en || `U-${unitRows.length + 1}`) as string,
+          unit_type: 'apartment',
+          geometry: JSON.stringify(g),
+          status: 'available',
+          is_active: 'true',
+          lat: lat?.toString() ?? null,
+          lng: lng?.toString() ?? null,
+        });
+      }
+    }
+    if (unitRows.length === 0) return 0;
+    const { data: count, error } = await supabase.rpc('generate_project_units', {
+      p_project_id: projectId,
+      p_unit_data: unitRows,
+      p_mode: mode,
+    });
+    if (error) { console.error('generate_project_units RPC:', error); return 0; }
+    return (count as number) || 0;
+  } catch (err) { console.error('generateAndSyncUnits error:', err); return 0; }
 }
 
 // ---------- Floor Plan Overlay ----------
@@ -1352,6 +1702,8 @@ export default function MapsPage() {
   const [breadcrumb, setBreadcrumb] = useState<{ level: string; id: string; label: string }[]>([]);
   const [projectGeometries, setProjectGeometries] = useState<any[]>([]);
   const [editingGeometry, setEditingGeometry] = useState<{ id: string; geometry: any } | null>(null);
+  const [showUnitMarkers, setShowUnitMarkers] = useState(true);
+  const [showUnitLabels, setShowUnitLabels] = useState(true);
   const [showUnitFilters, setShowUnitFilters] = useState(false);
   const [heatmapMode, setHeatmapMode] = useState<'off' | 'price' | 'density'>('off');
   const [unitTypeFilter, setUnitTypeFilter] = useState('');
@@ -1404,7 +1756,7 @@ export default function MapsPage() {
         supabase.from('blocks').select('*').limit(500),
         supabase.from('buildings').select('*').limit(500),
         supabase.from('floors').select('*').limit(500),
-        supabase.from('units').select('id, unit_code, unit_type, floor_number, status, area_sqm, bedrooms, price, lat, lng, geometry, floor_id, block_id, project_id, is_active').eq('is_active', true).limit(1000),
+        supabase.from('units').select('id, unit_code, unit_type, floor_number, status, area_sqm, bedrooms, price, sale_price, lat, lng, geometry, floor_id, block_id, project_id, is_active').eq('is_active', true).limit(1000),
         supabase.from('map_annotations').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('map_views').select('*').order('created_at', { ascending: false }).limit(50),
         supabase.from('virtual_tours').select('*, units!left(unit_code)').limit(200),
@@ -1703,9 +2055,19 @@ export default function MapsPage() {
             <option value="all">All Status</option>
             {Object.entries(statusLabels).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
           </select>
+          <button className={`btn-sm ${showUnitMarkers ? 'bg-cyan-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setShowUnitMarkers(!showUnitMarkers)} title="Toggle unit markers">
+            <Home size={13} />
+          </button>
+          {showUnitMarkers && (
+            <button className={`btn-sm ${showUnitLabels ? 'bg-cyan-600 text-white' : 'btn-secondary'}`}
+              onClick={() => setShowUnitLabels(!showUnitLabels)} title="Toggle unit labels">
+              <Type size={13} />
+            </button>
+          )}
           <button className={`btn-sm ${showUnitFilters ? 'bg-cyan-600 text-white' : 'btn-secondary'}`}
             onClick={() => setShowUnitFilters(!showUnitFilters)} title="Unit filters">
-            <Home size={13} />
+            <Filter size={13} />
           </button>
           <button className={`btn-sm ${drawMode !== 'none' ? 'bg-blue-600 text-white' : 'btn-secondary'}`}
             onClick={() => setDrawMode(drawMode === 'none' ? 'polygon' : 'none')} title="Toggle drawing">
@@ -1877,7 +2239,7 @@ export default function MapsPage() {
                 <MapContainer center={[24.75, 46.75]} zoom={11} className="h-full w-full" style={{ background: '#f0f0f0' }} zoomControl={false}>
                   <TileLayer attribution={tile.att} url={tile.url} />
                   <ScaleControl position="bottomleft" imperial={false} />
-                  <FocusOnSelect selectedType={selectedType} selectedId={selectedId} projects={projects} blocks={blocks} buildings={buildings} units={units} />
+                  <FocusOnSelect selectedType={selectedType} selectedId={selectedId} projects={projects} blocks={blocks} buildings={buildings} units={units} projectGeometries={projectGeometries} />
                   <MapImageLayer
                     projectId={selectedType === 'project' ? selectedId : undefined}
                     blockId={selectedType === 'block' ? selectedId : undefined}
@@ -1921,31 +2283,34 @@ export default function MapsPage() {
                         mouseover: () => setHoveredBlock(b.id),
                         mouseout: () => setHoveredBlock(null),
                       }}
-                    >
-                      <Popup>
-                        <div style={{ minWidth: 180 }}>
-                          <h3 className="font-semibold text-gray-900 text-sm">{b.name_en}</h3>
-                          <p className="text-xs font-mono text-gray-500">{b.block_code}</p>
-                          <div className="mt-1.5 space-y-1 text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors[b.status] }} />
-                              <span className="capitalize">{statusLabels[b.status] || b.status}</span>
-                            </div>
-                            {b.floor_count != null && <p>Floors: {b.floor_count}</p>}
-                            {b.total_units != null && <p>Units: {b.total_units}</p>}
-                            {b.progress_percent != null && (
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                  <div className="h-full rounded-full" style={{ width: `${b.progress_percent}%`, backgroundColor: statusColors[b.status] }} />
-                                </div>
-                                <span className="font-medium text-gray-600">{b.progress_percent}%</span>
+                      >
+                        <Tooltip sticky direction="center">
+                          <span style={{ fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>{b.name_en}</span>
+                        </Tooltip>
+                        <Popup>
+                          <div style={{ minWidth: 180 }}>
+                            <h3 className="font-semibold text-gray-900 text-sm">{b.name_en}</h3>
+                            <p className="text-xs font-mono text-gray-500">{b.block_code}</p>
+                            <div className="mt-1.5 space-y-1 text-xs">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors[b.status] }} />
+                                <span className="capitalize">{statusLabels[b.status] || b.status}</span>
                               </div>
-                            )}
-                            {b.area_sqm != null && <p>Area: {b.area_sqm.toLocaleString()} m²</p>}
+                              {b.floor_count != null && <p>Floors: {b.floor_count}</p>}
+                              {b.total_units != null && <p>Units: {b.total_units}</p>}
+                              {b.progress_percent != null && (
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full" style={{ width: `${b.progress_percent}%`, backgroundColor: statusColors[b.status] }} />
+                                  </div>
+                                  <span className="font-medium text-gray-600">{b.progress_percent}%</span>
+                                </div>
+                              )}
+                              {b.area_sqm != null && <p>Area: {b.area_sqm.toLocaleString()} m²</p>}
+                            </div>
                           </div>
-                        </div>
-                      </Popup>
-                    </GeoJSON>
+                        </Popup>
+                      </GeoJSON>
                   ))}
 
                   {/* Project geometries from GeometryInputPanel */}
@@ -1959,32 +2324,39 @@ export default function MapsPage() {
                     const filtered = currentProjectId
                       ? projectGeometries.filter(g => g.project_id === currentProjectId)
                       : projectGeometries.filter(g => g.project_id === projects[0]?.id);
-                    return filtered.map(g => g.geometry ? (
+                    return filtered.map(g => {
+                      const isUnit = g.geometry_type === 'unit';
+                      return g.geometry ? (
                       <GeoJSON key={g.id} data={g.geometry}
                         style={() => ({
-                          color: g.color || '#6366f1',
-                          fillColor: g.color || '#6366f1',
-                          fillOpacity: 0.2,
-                          weight: 2,
+                          color: isUnit ? '#8b5cf6' : (g.color || '#6366f1'),
+                          fillColor: isUnit ? '#8b5cf6' : (g.color || '#6366f1'),
+                          fillOpacity: isUnit ? 0.15 : 0.2,
+                          weight: isUnit ? 1 : 2,
                           dashArray: g.geometry_type === 'site' ? '5,5' : undefined,
+                          opacity: isUnit ? 0.8 : 1,
                         })}
                         eventHandlers={{
                           click: () => handleSelect(g.geometry_type as any, g.id),
                         }}
                       >
+                        <Tooltip sticky direction="center">
+                          <span style={{ fontSize: isUnit ? 10 : 11, fontWeight: isUnit ? 500 : 600, whiteSpace: 'nowrap' }}>
+                            {isUnit ? (g.label_en || 'unit') : (g.label_en || g.geometry_type)}
+                          </span>
+                        </Tooltip>
                         <Popup>
                           <div className="text-xs" style={{ minWidth: 180 }}>
                             <h4 className="font-semibold">{g.label_en || g.geometry_type}</h4>
-                            <p className="text-[10px] opacity-60 capitalize mt-0.5">{g.geometry_type} geometry</p>
                             <button
                               onClick={() => setEditingGeometry({ id: g.id, geometry: g.geometry })}
                               className="btn-primary btn-xs w-full mt-1.5 flex items-center justify-center gap-1">
-                              <Edit3 size={10} /> Edit on map
+                              <Edit3 size={10} /> Edit
                             </button>
                           </div>
                         </Popup>
                       </GeoJSON>
-                    ) : null);
+                    ) : null});
                   })()}
 
                   {/* Project markers */}
@@ -2021,7 +2393,7 @@ export default function MapsPage() {
                   ))}
 
                   {/* Unit markers with clustering */}
-                  <UnitClusterLayer units={unitMarkers} colors={statusColors} onUnitClick={(id) => navigate(`/units/${id}`)} />
+                  {showUnitMarkers && <UnitClusterLayer units={unitMarkers} colors={statusColors} onUnitClick={(id) => navigate(`/units/${id}`)} showLabels={showUnitLabels} />}
                   {heatmapMode !== 'off' && <HeatmapLayer units={unitMarkers} mode={heatmapMode} />}
 
                   {/* Floor plan overlays + bounds picking */}
@@ -2117,7 +2489,7 @@ export default function MapsPage() {
         {/* 3D View */}
         {is3d && !showWalkthrough && (
           <div className={`${viewMode === 'split' ? 'w-1/2' : 'flex-1'} glass-card overflow-hidden rounded-lg`}>
-            <Map3DView blocks={filteredBlocks} buildings={buildings} show={true} onSelect={handleSelect} statusColors={statusColors} selectedType={selectedType} selectedId={selectedId} />
+            <Map3DView blocks={filteredBlocks} buildings={buildings} projectGeometries={projectGeometries} show={true} onSelect={handleSelect} statusColors={statusColors} selectedType={selectedType} selectedId={selectedId} />
           </div>
         )}
 
@@ -2237,9 +2609,10 @@ export default function MapsPage() {
 }
 
 // ---------- Auto Focus on Selected Item ----------
-function FocusOnSelect({ selectedType, selectedId, projects, blocks, buildings, units }: {
+function FocusOnSelect({ selectedType, selectedId, projects, blocks, buildings, units, projectGeometries }: {
   selectedType: string; selectedId: string;
   projects: MapProject[]; blocks: MapBlock[]; buildings: MapBuilding[]; units: MapUnit[];
+  projectGeometries: any[];
 }) {
   const map = useMap();
   useEffect(() => {
@@ -2247,22 +2620,39 @@ function FocusOnSelect({ selectedType, selectedId, projects, blocks, buildings, 
     let lat = 24.75, lng = 46.75, zoom = 15;
     if (selectedType === 'project') {
       const p = projects.find(x => x.id === selectedId);
-      if (p) { lat = p.latitude || p.lat || 24.75; lng = p.longitude || p.lng || 46.75; zoom = 14; }
+      if (p) { lat = p.latitude ?? p.lat ?? 24.75; lng = p.longitude ?? p.lng ?? 46.75; zoom = 14; }
     } else if (selectedType === 'block') {
       const b = blocks.find(x => x.id === selectedId);
       if (b) {
         if (b.center_lat && b.center_lng) { lat = b.center_lat; lng = b.center_lng; zoom = 16; }
         else if (b.geometry) { const c = polygonCenter(b.geometry); lat = c[0]; lng = c[1]; zoom = 16; }
+      } else {
+        const g = projectGeometries.find(x => x.id === selectedId);
+        if (g?.geometry) { const c = polygonCenter(g.geometry); lat = c[0]; lng = c[1]; zoom = 16; }
       }
     } else if (selectedType === 'building') {
       const b = buildings.find(x => x.id === selectedId);
-      if (b) { lat = b.center_lat || 24.75; lng = b.center_lng || 46.75; zoom = 17; }
+      if (b) {
+        if (b.center_lat && b.center_lng) { lat = b.center_lat; lng = b.center_lng; zoom = 17; }
+        else if (b.geometry) { const c = polygonCenter(b.geometry); lat = c[0]; lng = c[1]; zoom = 17; }
+      } else {
+        const g = projectGeometries.find(x => x.id === selectedId);
+        if (g?.geometry) { const c = polygonCenter(g.geometry); lat = c[0]; lng = c[1]; zoom = 17; }
+      }
     } else if (selectedType === 'unit') {
       const u = units.find(x => x.id === selectedId);
-      if (u) { lat = u.lat || 24.75; lng = u.lng || 46.75; zoom = 18; }
+      if (u) {
+        if (u.lat != null && u.lng != null) { lat = u.lat; lng = u.lng; zoom = 18; }
+      } else {
+        const g = projectGeometries.find(x => x.id === selectedId);
+        if (g?.geometry) { const c = polygonCenter(g.geometry); lat = c[0]; lng = c[1]; zoom = 18; }
+      }
+    } else {
+      const g = projectGeometries.find(x => x.id === selectedId);
+      if (g?.geometry) { const c = polygonCenter(g.geometry); lat = c[0]; lng = c[1]; zoom = 16; }
     }
     map.flyTo([lat, lng], zoom, { duration: 1 });
-  }, [map, selectedType, selectedId, projects, blocks, buildings, units]);
+  }, [map, selectedType, selectedId, projects, blocks, buildings, units, projectGeometries]);
   return null;
 }
 

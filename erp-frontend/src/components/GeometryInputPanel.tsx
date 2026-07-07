@@ -4,6 +4,87 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../services/supabase';
 import { geometryImportsApi } from '../services/mapsApi';
 import { projectGeometriesApi } from '../services/api';
+import L from 'leaflet';
+
+async function autoGenerateUnits(projectId: string, mode: 'append' | 'replace' = 'append'): Promise<number> {
+  try {
+    const { data: geoms } = await supabase.from('project_geometries').select('id, geometry, label_en, project_id')
+      .eq('project_id', projectId).in('geometry_type', ['site', 'building', 'floor']);
+    if (!geoms || geoms.length === 0) { console.warn('autoGenerateUnits: no geometries found for', projectId); return 0; }
+    const unitRows: Record<string, unknown>[] = [];
+    for (const g of geoms) {
+      if (!g.geometry) continue;
+      const prefix = g.label_en ? g.label_en.slice(0, 6).replace(/[^a-zA-Z0-9_]/g, '') : 'U';
+      const generated = generateUnitsFromGeometry(g.geometry, prefix, 2, 2);
+      for (const u of generated) {
+        const g = u.geometry as any;
+        const coords = g?.coordinates?.[0];
+        let lat: string | null = null;
+        let lng: string | null = null;
+        if (coords?.length >= 4) {
+          lat = String(coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length);
+          lng = String(coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length);
+        }
+        unitRows.push({
+          unit_code: (u.label_en || `U-${unitRows.length + 1}`) as string,
+          unit_type: 'apartment',
+          geometry: JSON.stringify(g),
+          status: 'available',
+          is_active: 'true',
+          lat,
+          lng,
+        });
+      }
+    }
+    if (unitRows.length === 0) return 0;
+    const { data: count, error } = await supabase.rpc('generate_project_units', {
+      p_project_id: projectId,
+      p_unit_data: unitRows,
+      p_mode: mode,
+    });
+    if (error) { console.error('generate_project_units RPC:', error); return 0; }
+    return (count as number) || 0;
+  } catch (err) { console.error('autoGenerateUnits error:', err); return 0; }
+}
+
+function generateUnitsFromGeometry(geometry: any, labelPrefix: string, cols = 4, rows = 3): Record<string, unknown>[] {
+  try {
+    const bounds = L.geoJSON(geometry).getBounds();
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    const latStep = (ne.lat - sw.lat) / rows;
+    const lngStep = (ne.lng - sw.lng) / cols;
+    const units: Record<string, unknown>[] = [];
+    let idx = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        idx++;
+        const unitPolygon = {
+          type: 'Polygon',
+          coordinates: [[
+            [sw.lng + c * lngStep, sw.lat + r * latStep],
+            [sw.lng + (c + 1) * lngStep, sw.lat + r * latStep],
+            [sw.lng + (c + 1) * lngStep, sw.lat + (r + 1) * latStep],
+            [sw.lng + c * lngStep, sw.lat + (r + 1) * latStep],
+            [sw.lng + c * lngStep, sw.lat + r * latStep],
+          ]],
+        };
+        units.push({
+          geometry_type: 'unit',
+          label_en: `${labelPrefix}-${String(idx).padStart(3, '0')}`,
+          geometry: unitPolygon,
+          level: 3,
+          sort_order: idx,
+          status: 'active',
+          properties: { generated: true, col: c + 1, row: r + 1 },
+        });
+      }
+    }
+    return units;
+  } catch {
+    return [];
+  }
+}
 
 interface Props {
   projectId: string;
@@ -107,19 +188,20 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
         const geom = f.geometry;
         if (!geom) { errors.push(`Feature ${i + 1}: missing geometry`); continue; }
 
-        const label = f.properties?.label_en || f.properties?.name || f.properties?.unit_code || `${targetLevel}_${i + 1}`;
+        const featType = f.properties?.type || f.properties?.geometry_type || targetLevel;
+        const label = f.properties?.label_en || f.properties?.name || f.properties?.unit_code || `${featType}_${i + 1}`;
         const labelAr = f.properties?.label_ar || null;
 
         try {
           await projectGeometriesApi.upsert({
             project_id: projectId,
             parent_id: parentId || undefined,
-            geometry_type: targetLevel,
+            geometry_type: featType,
             label_en: label,
             label_ar: labelAr || undefined,
             geometry: geom,
             properties: f.properties || {},
-            level: ['site', 'building', 'floor', 'unit'].indexOf(targetLevel),
+            level: ['site', 'building', 'floor', 'unit'].indexOf(featType),
             sort_order: i,
             status: 'active',
           });
@@ -138,9 +220,14 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
       errors.push(err.message || 'Unexpected error');
     }
 
+    if (success > 0) {
+      const unitCount = await autoGenerateUnits(projectId, 'append');
+      if (unitCount > 0) toast.success(`Auto-generated ${unitCount} units`);
+    }
+
     setResult({ success, errors });
     if (success > 0) {
-      toast.success(`Imported ${success} ${targetLevel} geometries`);
+      toast.success(`${success} geometries created`);
       onImported();
     } else {
       toast.error('Import failed — see details below');
@@ -205,9 +292,14 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
       errors.push(err.message || 'Unexpected error');
     }
 
+    if (success > 0) {
+      const unitCount = await autoGenerateUnits(projectId, 'append');
+      if (unitCount > 0) toast.success(`Auto-generated ${unitCount} units from CSV`);
+    }
+
     setResult({ success, errors });
     if (success > 0) {
-      toast.success(`Imported ${success} geometries from CSV`);
+      toast.success(`${success} geometries created from CSV`);
       onImported();
     }
     setProcessing(false);
@@ -408,7 +500,7 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
         <div className="border-t px-3 py-2 space-y-1" style={{ borderColor: 'var(--color-border)' }}>
           <div className="flex items-center gap-1.5 text-xs">
             {result.success > 0 ? (
-              <><CheckCircle2 size={12} className="text-green-500" /><span className="text-green-600 font-medium">{result.success} imported</span></>
+              <><CheckCircle2 size={12} className="text-green-500" /><span className="text-green-600 font-medium">{result.success} created</span></>
             ) : (
               <><AlertCircle size={12} className="text-red-500" /><span className="text-red-600 font-medium">Import failed</span></>
             )}

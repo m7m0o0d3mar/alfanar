@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
@@ -39,8 +39,6 @@ export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }: 
   const isAdmin = effectiveRole === 'admin';
   const [pages, setPages] = useState<PageRegistryEntry[]>([]);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
-  const [hovered, setHovered] = useState(false);
-
   useEffect(() => {
     loadPageRegistry();
     pageRegistryApi.list(true).then(setPages).catch(() => {/* page registry unavailable */});
@@ -54,7 +52,12 @@ export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }: 
     setOpenSections(prev => ({ ...initial, ...prev }));
   }, [pages, isAdmin]);
 
-  const isExpanded = !collapsed || hovered;
+  const [hovered, setHovered] = useState(false);
+  const isExpanded = !collapsed;
+
+  // Track mouse hover for showing labels in collapsed mode
+  const sidebarMouseEnter = useCallback(() => setHovered(true), []);
+  const sidebarMouseLeave = useCallback(() => setHovered(false), []);
 
   function toggleSection(key: string) {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
@@ -124,8 +127,8 @@ export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }: 
   return (
     <>
       <aside
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseEnter={sidebarMouseEnter}
+        onMouseLeave={sidebarMouseLeave}
         style={{ width: isExpanded ? 'var(--sidebar-width, 16rem)' : '4rem' }}
         className={`
           fixed md:sticky top-0 z-40 h-screen bg-sidebar text-white flex flex-col shrink-0
@@ -152,7 +155,7 @@ export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }: 
         <button
           onClick={onToggleCollapse}
           aria-label="Toggle sidebar"
-          className="hidden md:flex items-center justify-center w-full py-2 hover:bg-white/5 transition-colors shrink-0"
+          className="flex items-center justify-center w-full py-2 hover:bg-white/5 transition-colors shrink-0"
           style={{ color: 'color-mix(in srgb, var(--color-sidebar-text, #f8fafc) 50%, transparent)' }}
           onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-sidebar-text, #f8fafc)')}
           onMouseLeave={e => (e.currentTarget.style.color = 'color-mix(in srgb, var(--color-sidebar-text, #f8fafc) 50%, transparent)')}

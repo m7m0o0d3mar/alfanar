@@ -97,7 +97,7 @@ export default function CsvImportModal({ moduleName, config, onClose }: Props) {
               }}>
                 {result.errors.length > 0 ? <AlertCircle size={24} style={{color: '#d97706'}} /> : <CheckCircle size={24} style={{color: '#16a34a'}} />}
                 <div>
-                  <p className="font-medium">{result.success} / {result.total} records imported</p>
+                  <p className="font-medium">{result.success} / {result.total} records</p>
                   {result.errors.length > 0 && <p className="text-sm" style={{color: '#d97706'}}>{result.errors.length} errors</p>}
                 </div>
               </div>

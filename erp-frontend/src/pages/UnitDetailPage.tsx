@@ -60,7 +60,9 @@ export default function UnitDetailPage() {
     if (!id) return;
     setSaving(true);
     try {
-      const { error } = await supabase.from('units').update(form).eq('id', id);
+      const allowed = ['unit_code','unit_type','floor_number','area_sqm','bedrooms','bathrooms','status','price','handover_date'];
+      const payload = Object.fromEntries(allowed.filter(k => k in form).map(k => [k, (form as any)[k]]));
+      const { error } = await supabase.from('units').update(payload).eq('id', id);
       if (error) throw error;
       toast.success('Unit updated');
       setEditing(false);

@@ -1,11 +1,15 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON, Marker, Popup, Tooltip, useMap, useMapEvents, ScaleControl } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { supabase } from '../services/supabase';
 import { projectGeometriesApi, type ProjectGeometry } from '../services/api';
-import { Building2, Layers, Home, MapPin, Maximize2, Minimize2, ExternalLink, DollarSign, Target, ArrowLeft, ChevronRight, Upload, Download, Grid3x3, Search, RotateCw, Filter, Info } from 'lucide-react';
+import { Building2, Layers, Home, Map, MapPin, Maximize2, Minimize2, ExternalLink, DollarSign, Target, ArrowLeft, ChevronRight, Upload, Download, Grid3x3, Search, RotateCw, Filter, Info, Ruler, MousePointer, Type } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '../context/ToastContext';
 import ProjectSitePlanGenerator from './ProjectSitePlanGenerator';
+import MeasurementTool, { calculateDistance, calculateArea } from './MeasurementTool';
+import type { Measurement } from './MeasurementTool';
 
 interface Props {
   projectId: string;
@@ -98,12 +102,64 @@ function FitProjectBounds({ features }: { features: FeatureGroupData[] }) {
   return null;
 }
 
+function UnitMarkers({ projectId, showLabels }: { projectId: string; showLabels?: boolean }) {
+  const map = useMap();
+  const [units, setUnits] = useState<any[]>([]);
+  useEffect(() => {
+    supabase.from('units').select('id, unit_code, unit_type, status, area_sqm, bedrooms, price, sale_price, lat, lng, floor_number, project_id')
+      .eq('project_id', projectId).eq('is_active', true).limit(500).then(({ data }) => {
+        setUnits(data || []);
+      });
+  }, [projectId]);
+  useEffect(() => {
+    const markers: L.Marker[] = [];
+    for (const u of units) {
+      if (!u.lat || !u.lng) continue;
+      const color = statusColors[u.status] || '#6b7280';
+      const shortLabel = u.unit_code ? u.unit_code.length > 4 ? u.unit_code.slice(0, 4) : u.unit_code.slice(-4) : 'U';
+      const displayCode = u.unit_code || '';
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="width:30px;height:30px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 2px 6px ${color}66;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;letter-spacing:-0.5px">${shortLabel}</div>${showLabels ? `<div style="text-align:center;font-size:8px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:2px;padding:0 3px;margin-top:1px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2)">${displayCode}</div>` : ''}`,
+        iconSize: showLabels ? [80, 44] : [30, 30],
+        iconAnchor: showLabels ? [40, 44] : [15, 15],
+      });
+      const marker = L.marker([u.lat, u.lng], { icon });
+      marker.bindTooltip(`
+        <div style="font-size:12px;font-weight:600">${u.unit_code}
+          <span style="font-weight:400;color:#6b7280;font-size:11px;text-transform:capitalize">${u.unit_type ? `· ${u.unit_type}` : ''}${u.status ? `· ${u.status}` : ''}</span>
+        </div>
+      `, { direction: 'top', offset: L.point(0, -16), sticky: true });
+      marker.bindPopup(`
+        <div style="min-width:220px;font-family:system-ui,sans-serif">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0"></span>
+            <span style="font-weight:700;font-size:15px">${u.unit_code}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;font-size:12px;color:#374151">
+            <span style="color:#6b7280">Type:</span><span>${u.unit_type || '—'}</span>
+            <span style="color:#6b7280">Status:</span><span style="color:${color};font-weight:500">${u.status || '—'}</span>
+            ${u.area_sqm != null ? `<span style="color:#6b7280">Area:</span><span>${u.area_sqm} m²</span>` : ''}
+            ${u.bedrooms != null ? `<span style="color:#6b7280">Bedrooms:</span><span>${u.bedrooms}</span>` : ''}
+            ${u.floor_number != null ? `<span style="color:#6b7280">Floor:</span><span>${u.floor_number}</span>` : ''}
+            ${(u.sale_price || u.price) ? `<span style="color:#6b7280">Price:</span><span>${Number(u.sale_price || u.price).toLocaleString()} SAR</span>` : ''}
+          </div>
+        </div>
+      `, { maxWidth: 280 });
+      marker.addTo(map);
+      markers.push(marker);
+    }
+    return () => { markers.forEach(m => map.removeLayer(m)); };
+  }, [map, units]);
+  return null;
+}
+
 function MapContent({ geometries, selectedId, onSelect, drillLevel, levelColors, searchQuery }: {
   geometries: FeatureGroupData[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   drillLevel: number;
-  levelColors: Map<string, { fill: string; stroke: string }>;
+  levelColors: Record<string, { fill: string; stroke: string }>;
   searchQuery: string;
 }) {
   const map = useMap();
@@ -115,11 +171,14 @@ function MapContent({ geometries, selectedId, onSelect, drillLevel, levelColors,
 
   const onEachFeature = useCallback((feature: any, layer: L.Layer) => {
     const id = feature.properties?._id;
+    const label = feature.properties?._label || id;
     if (!id) return;
+    const poly = layer as L.Polygon;
+    poly.bindTooltip(label, { sticky: true, direction: 'center' });
     layer.on({
       click: () => {
         onSelect(id);
-        const bounds = (layer as L.Polygon).getBounds();
+        const bounds = poly.getBounds();
         if (bounds.isValid()) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18 });
       },
       mouseover: (e) => {
@@ -147,7 +206,7 @@ function MapContent({ geometries, selectedId, onSelect, drillLevel, levelColors,
     <>
       {filtered.map((g) => {
         if (!g.coords[0] || g.coords[0].length < 3) return null;
-        const c = levelColors.get(g.id) || getFeatureColor(g as any);
+        const c = levelColors[g.id] || getFeatureColor(g as any);
         const isSelected = selectedId === g.id;
         const geoJsonData = {
           type: 'FeatureCollection',
@@ -179,8 +238,66 @@ function MapContent({ geometries, selectedId, onSelect, drillLevel, levelColors,
   );
 }
 
+// ---------- Coordinate Tracker ----------
+function CoordTracker() {
+  const map = useMap();
+  const [coord, setCoord] = useState('');
+  useEffect(() => {
+    const handler = (e: L.LeafletMouseEvent) => setCoord(`${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`);
+    map.on('mousemove', handler);
+    return () => { map.off('mousemove', handler); };
+  }, [map]);
+  return (
+    <div className="bg-white/90 backdrop-blur-sm rounded-lg shadow-lg px-2 py-1.5 text-[10px] font-mono text-gray-600 absolute bottom-3 left-3 z-[1000]">
+      {coord || '24.7500, 46.7500'}
+    </div>
+  );
+}
+
+// ---------- Measure Click Handler ----------
+function MeasureClickHandler({ onMeasure }: { onMeasure: (lat: number, lng: number) => void }) {
+  useMapEvents({ click: (e: L.LeafletMouseEvent) => { onMeasure(e.latlng.lat, e.latlng.lng); } });
+  return null;
+}
+
+// ---------- Measurement Layer Renderer ----------
+function MeasurementLayer({ measurements }: { measurements: Measurement[] }) {
+  const map = useMap();
+  useEffect(() => {
+    const layers: L.Layer[] = [];
+    for (const m of measurements) {
+      if (m.points.length < 2) continue;
+      const latlngs = m.points.map(([lat, lng]) => [lat, lng] as [number, number]);
+      if (m.type === 'distance') {
+        const poly = L.polyline(latlngs, { color: m.color, weight: 2, dashArray: '5,5' });
+        poly.addTo(map);
+        layers.push(poly);
+        const mid = m.points.length === 2 ? [(m.points[0][0] + m.points[1][0]) / 2, (m.points[0][1] + m.points[1][1]) / 2] as [number, number] : null;
+        if (mid) {
+          const icon = L.divIcon({ className: '', html: `<div style="background:${m.color};color:white;padding:1px 5px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">${m.label}</div>` });
+          const label = L.marker(mid, { icon, interactive: false });
+          label.addTo(map);
+          layers.push(label);
+        }
+      } else if (m.type === 'area' && m.points.length >= 3) {
+        const poly = L.polygon(latlngs, { color: m.color, weight: 2, fillColor: m.color, fillOpacity: 0.15 });
+        poly.addTo(map);
+        layers.push(poly);
+        const centroid = [m.points.reduce((s, p) => s + p[0], 0) / m.points.length, m.points.reduce((s, p) => s + p[1], 0) / m.points.length] as [number, number];
+        const icon = L.divIcon({ className: '', html: `<div style="background:${m.color};color:white;padding:1px 5px;border-radius:8px;font-size:10px;font-weight:600;white-space:nowrap">${m.label}</div>` });
+        const label = L.marker(centroid, { icon, interactive: false });
+        label.addTo(map);
+        layers.push(label);
+      }
+    }
+    return () => { layers.forEach(l => map.removeLayer(l)); };
+  }, [map, measurements]);
+  return null;
+}
+
 export default function ProjectSitePlan({ projectId, projectName, height = '500px' }: Props) {
   const navigate = useNavigate();
+  const toast = useToast();
   const [geometries, setGeometries] = useState<ProjectGeometry[]>([]);
   const [features, setFeatures] = useState<FeatureGroupData[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -192,8 +309,14 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
   const [showGenerator, setShowGenerator] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showStats, setShowStats] = useState(false);
+  const [measureMode, setMeasureMode] = useState<'none' | 'distance' | 'area'>('none');
+  const [measurements, setMeasurements] = useState<Measurement[]>([]);
+  const [showUnitMarkers, setShowUnitMarkers] = useState(true);
+  const [showLabels, setShowLabels] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [tileLayer, setTileLayer] = useState<'street' | 'satellite'>('street');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const levelColors = useRef(new Map<string, { fill: string; stroke: string }>());
+  const levelColors = useRef<Record<string, { fill: string; stroke: string }>>({});
   const fitKey = useRef(0);
 
   const loadData = useCallback(() => {
@@ -209,7 +332,7 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
             label: g.label_en || g.label_ar, coords, properties: g.properties || {},
             salesStatus: ((g.properties as any)?.sales_status as string) || undefined,
           });
-          levelColors.current.set(g.id, getFeatureColor(g));
+          levelColors.current[g.id] = getFeatureColor(g);
         }
       }
       setFeatures(feats);
@@ -293,7 +416,7 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
         await projectGeometriesApi.upsert({
           project_id: projectId,
           geometry_type: props.type || 'building',
-          label_en: props.name || props.label_en || props.name_en || `Imported ${count + 1}`,
+          label_en: props.name || props.label_en || props.name_en || `Feature ${count + 1}`,
           label_ar: props.label_ar || props.name_ar || null,
           geometry: feat.geometry,
           properties: {
@@ -315,6 +438,60 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  }
+
+  async function generateUnitsFromGeometries(pid: string, mode: 'append' | 'replace') {
+    setGenerating(true);
+    try {
+      const { data: geoms } = await supabase.from('project_geometries').select('id, geometry, label_en, project_id')
+        .eq('project_id', pid).in('geometry_type', ['site', 'building', 'floor']);
+      if (!geoms || geoms.length === 0) { toast.info('No geometries found'); return; }
+      const unitRows: Record<string, unknown>[] = [];
+      for (const g of geoms) {
+        if (!g.geometry) continue;
+        const prefix = g.label_en ? g.label_en.slice(0, 6).replace(/[^a-zA-Z0-9_]/g, '') : 'U';
+        const bounds = L.geoJSON(g.geometry).getBounds();
+        const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+        const rows = 2, cols = 2;
+        const latStep = (ne.lat - sw.lat) / rows, lngStep = (ne.lng - sw.lng) / cols;
+        let idx = 0;
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            idx++;
+            const unitPolygon = {
+              type: 'Polygon',
+              coordinates: [[
+                [sw.lng + c * lngStep, sw.lat + r * latStep],
+                [sw.lng + (c + 1) * lngStep, sw.lat + r * latStep],
+                [sw.lng + (c + 1) * lngStep, sw.lat + (r + 1) * latStep],
+                [sw.lng + c * lngStep, sw.lat + (r + 1) * latStep],
+                [sw.lng + c * lngStep, sw.lat + r * latStep],
+              ]],
+            };
+            const coords = unitPolygon.coordinates[0];
+            const lat = String(coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length);
+            const lng = String(coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length);
+            unitRows.push({
+              unit_code: `${prefix}-${String(idx).padStart(3, '0')}`,
+              unit_type: 'apartment',
+              geometry: JSON.stringify(unitPolygon),
+              status: 'available',
+              is_active: 'true',
+              lat,
+              lng,
+            });
+          }
+        }
+      }
+      if (unitRows.length === 0) { toast.info('No units generated'); return; }
+      const { data: count, error } = await supabase.rpc('generate_project_units', {
+        p_project_id: pid, p_unit_data: unitRows, p_mode: mode,
+      });
+      if (error) throw error;
+      toast.success(`${count || unitRows.length} units ${mode === 'replace' ? 'replaced' : 'added'}`);
+      loadData();
+    } catch (err: any) { toast.error(err?.message || 'Generation failed'); }
+    setGenerating(false);
   }
 
   const handleSelect = useCallback((id: string) => {
@@ -388,6 +565,39 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
             className="btn-sm btn-primary text-xs flex items-center gap-1">
             <Grid3x3 size={12} /> Generate Site Plan
           </button>
+          <button className="btn-sm text-xs flex items-center gap-1" disabled={generating}
+            style={{ background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, padding: '4px 8px', cursor: 'pointer', opacity: generating ? 0.5 : 1 }}
+            onClick={() => generateUnitsFromGeometries(projectId, 'append')}>
+            <Grid3x3 size={10} /> {generating ? '...' : 'Append'}
+          </button>
+          <button className="btn-sm text-xs flex items-center gap-1" disabled={generating}
+            style={{ background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, padding: '4px 8px', cursor: 'pointer', opacity: generating ? 0.5 : 1 }}
+            onClick={() => generateUnitsFromGeometries(projectId, 'replace')}>
+            <Grid3x3 size={10} /> {generating ? '...' : 'Replace'}
+          </button>
+          <div className="w-px h-4 bg-gray-200" />
+          <button onClick={() => setShowUnitMarkers(!showUnitMarkers)}
+            className={`p-1.5 rounded ${showUnitMarkers ? 'text-blue-600 bg-blue-50' : 'hover:bg-gray-100 text-gray-500'}`}
+            title="Toggle Unit Markers"><Home size={14} /></button>
+          <button onClick={() => setShowLabels(!showLabels)}
+            className={`p-1.5 rounded ${showLabels ? 'text-blue-600 bg-blue-50' : 'hover:bg-gray-100 text-gray-500'}`}
+            title="Toggle Labels"><Type size={14} /></button>
+          <button onClick={() => setTileLayer(tileLayer === 'street' ? 'satellite' : 'street')}
+            className={`p-1.5 rounded ${tileLayer === 'satellite' ? 'text-blue-600 bg-blue-50' : 'hover:bg-gray-100 text-gray-500'}`}
+            title={tileLayer === 'street' ? 'Switch to Satellite' : 'Switch to Street Map'}><Map size={14} /></button>
+          <div className="w-px h-4 bg-gray-200" />
+          <button onClick={() => setMeasureMode(measureMode === 'distance' ? 'none' : 'distance')}
+            className={`p-1.5 rounded ${measureMode === 'distance' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100 text-gray-500'}`}
+            title="Measure Distance"><Ruler size={14} /></button>
+          <button onClick={() => setMeasureMode(measureMode === 'area' ? 'none' : 'area')}
+            className={`p-1.5 rounded ${measureMode === 'area' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100 text-gray-500'}`}
+            title="Measure Area"><Target size={14} /></button>
+          {measurements.length > 0 && (
+            <button onClick={() => { setMeasurements([]); setMeasureMode('none'); }}
+              className="p-1.5 rounded hover:bg-gray-100 text-red-500" title="Clear Measurements">
+              <MousePointer size={14} />
+            </button>
+          )}
           <span className="text-xs text-gray-500">{features.length} features</span>
           <button onClick={() => setFullscreen(!fullscreen)} className="p-1.5 rounded hover:bg-gray-100 text-gray-500">
             {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -416,10 +626,11 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
           ) : (
             <MapContainer center={[24.75, 46.75]} zoom={15} className="h-full w-full" style={{ height, background: '#f8f9fa' }}
               zoomControl={false}>
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              <TileLayer key={tileLayer}
+                attribution={tileLayer === 'street' ? '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>' : '&copy; Esri'}
+                url={tileLayer === 'street' ? 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'}
               />
+              <ScaleControl position="bottomleft" imperial={false} />
               <FitProjectBounds features={features} key={fitKey.current} />
               <MapContent
                 geometries={features}
@@ -429,6 +640,59 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
                 levelColors={levelColors.current}
                 searchQuery={searchQuery}
               />
+              {showUnitMarkers && <UnitMarkers projectId={projectId} showLabels={showLabels} />}
+              <CoordTracker />
+              {measureMode !== 'none' && (
+                <MeasureClickHandler onMeasure={(lat, lng) => {
+                  if (measureMode === 'distance') {
+                    setMeasurements(prev => {
+                      const last = prev.length > 0 ? prev[prev.length - 1] : null;
+                      if (last && last.type === 'distance' && last.points.length < 2) {
+                        const pts: [number, number][] = [[lat, lng]];
+                        const dist = calculateDistance(last.points[0], pts[0]);
+                        return [...prev.slice(0, -1), { ...last, points: [...last.points, [lat, lng] as [number, number]], value: Math.round(dist), label: `${Math.round(dist)} m`, color: last.color }];
+                      }
+                      const id = `m-${Date.now()}`;
+                      const color = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][prev.length % 5];
+                      return [...prev, { id, type: 'distance' as const, points: [[lat, lng] as [number, number]], value: 0, label: 'Click second point', color }];
+                    });
+                  } else if (measureMode === 'area') {
+                    setMeasurements(prev => {
+                      const last = prev.length > 0 ? prev[prev.length - 1] : null;
+                      if (last && last.type === 'area' && last.points.length < 3) {
+                        const pts = [...last.points, [lat, lng] as [number, number]];
+                        if (pts.length >= 3) {
+                          const area = calculateArea(pts);
+                          const label = area >= 10000 ? `${(area / 10000).toFixed(2)} ha` : `${Math.round(area)} m²`;
+                          return [...prev.slice(0, -1), { ...last, points: pts, value: Math.round(area), label, color: last.color }];
+                        }
+                        return [...prev.slice(0, -1), { ...last, points: pts }];
+                      }
+                      const id = `m-${Date.now()}`;
+                      const color = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][prev.length % 5];
+                      return [...prev, { id, type: 'area' as const, points: [[lat, lng] as [number, number]], value: 0, label: 'Click 2 more points', color }];
+                    });
+                  }
+                }} />
+              )}
+              {measurements.length > 0 && <MeasurementLayer measurements={measurements} />}
+              {measureMode !== 'none' && (
+                <div className="absolute top-2 right-2 z-[1000]">
+                  <MeasurementTool
+                    enabled={true}
+                    mode={measureMode}
+                    onModeChange={setMeasureMode}
+                    onMapClick={() => {}}
+                    measurements={measurements}
+                    onMeasurementsChange={setMeasurements}
+                  />
+                </div>
+              )}
+              {measureMode !== 'none' && measurements.length > 0 && (
+                <div className="absolute bottom-10 left-3 z-[1000] bg-white/90 backdrop-blur-sm rounded-lg shadow-lg px-2 py-1.5 text-[10px] text-gray-600">
+                  {measurements.length} measurement{measurements.length > 1 ? 's' : ''}
+                </div>
+              )}
             </MapContainer>
           )}
         </div>
