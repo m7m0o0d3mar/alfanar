@@ -594,16 +594,16 @@ export default function ProjectDetailPage() {
             <h3 className="font-semibold text-gray-900 mb-4">Quick Links</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: t('nav.units'), icon: Layers, path: '/units' },
-                { label: t('nav.execution'), icon: ClipboardList, path: '/execution' },
+                { label: t('nav.units'), icon: Layers, path: '/units', param: 'project' },
+                { label: t('nav.execution'), icon: ClipboardList, path: '/execution', param: 'project_id' },
                 { label: t('nav.procurement'), icon: ShoppingCart, path: '/procurement' },
-                { label: t('nav.quality'), icon: FileText, path: '/quality' },
-                { label: t('nav.hse'), icon: CheckSquare, path: '/hse' },
+                { label: t('nav.quality'), icon: FileText, path: '/quality', param: 'project_id' },
+                { label: t('nav.hse'), icon: CheckSquare, path: '/hse', param: 'project_id' },
                 { label: t('nav.finance'), icon: DollarSign, path: '/finance' },
-                { label: t('nav.documents'), icon: FileText, path: '/documents' },
+                { label: t('nav.documents'), icon: FileText, path: '/documents', param: 'project' },
                 { label: t('nav.approvals'), icon: CheckSquare, path: '/approvals' },
               ].map((link) => (
-                <button key={link.path} onClick={() => navigate(link.path)} className="flex items-center gap-2 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
+                <button key={link.path} onClick={() => navigate(link.param ? `${link.path}?${link.param}=${project.id}` : link.path)} className="flex items-center gap-2 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
                   <link.icon size={18} className="text-primary" />
                   {link.label}
                 </button>

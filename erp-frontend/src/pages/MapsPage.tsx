@@ -1444,6 +1444,37 @@ function BoundsClickHandler({ onPick }: { onPick: (lat: number, lng: number) => 
 }
 
 // ---------- Heatmap Layer ----------
+function UnitGeometryLayer({ units, colors, onUnitClick }: { units: MapUnit[]; colors: Record<string, string>; onUnitClick?: (unitId: string) => void }) {
+  const map = useMap();
+  useEffect(() => {
+    if (units.length === 0) return;
+    const geoUnits = units.filter(u => u.geometry && u.unit_code);
+    const group = L.layerGroup();
+    for (const u of geoUnits.slice(0, 500)) {
+      try {
+        const statusColor = colors[u.status] || '#6b7280';
+        const layer = L.geoJSON(u.geometry, {
+          style: { color: statusColor, fillColor: statusColor, fillOpacity: 0.15, weight: 1.5, opacity: 0.7 },
+          pointToLayer: (_f, latlng) => L.marker(latlng, { interactive: false, opacity: 0 }),
+        });
+        layer.eachLayer((l: any) => {
+          if (l.setStyle) l.setStyle({ color: statusColor, fillColor: statusColor, fillOpacity: 0.15, weight: 1.5, opacity: 0.7 });
+          const label = u.unit_code.match(/\d+$/)?.[0] || u.unit_code.slice(-3);
+          l.bindTooltip(`<div style="font-size:11px;font-weight:600">${u.unit_code}<span style="font-weight:400;color:#6b7280;font-size:10px"> ${u.unit_type ? '· ' + u.unit_type : ''}</span></div>`, { direction: 'center', sticky: true, offset: L.point(0, 0) });
+          if (onUnitClick) {
+            const uid = u.id;
+            l.on('click', () => onUnitClick(uid));
+          }
+          group.addLayer(l);
+        });
+      } catch { /* skip invalid geometry */ }
+    }
+    map.addLayer(group);
+    return () => { try { map.removeLayer(group); group.clearLayers(); } catch {} };
+  }, [map, units, colors, onUnitClick]);
+  return null;
+}
+
 function HeatmapLayer({ units, mode }: { units: MapUnit[]; mode: 'price' | 'density' }) {
   const map = useMap();
   useEffect(() => {
@@ -1744,6 +1775,7 @@ export default function MapsPage() {
   const [editingGeometry, setEditingGeometry] = useState<{ id: string; geometry: any } | null>(null);
   const [showUnitMarkers, setShowUnitMarkers] = useState(true);
   const [showUnitLabels, setShowUnitLabels] = useState(true);
+  const [showUnitGeometries, setShowUnitGeometries] = useState(false);
   const [showUnitFilters, setShowUnitFilters] = useState(false);
   const [heatmapMode, setHeatmapMode] = useState<'off' | 'price' | 'density'>('off');
   const [unitTypeFilter, setUnitTypeFilter] = useState('');
@@ -2105,6 +2137,10 @@ export default function MapsPage() {
               <Type size={13} />
             </button>
           )}
+          <button className={`btn-sm ${showUnitGeometries ? 'bg-amber-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setShowUnitGeometries(!showUnitGeometries)} title="Toggle unit geometry polygons">
+            <Grid3x3 size={13} />
+          </button>
           <button className={`btn-sm ${showUnitFilters ? 'bg-cyan-600 text-white' : 'btn-secondary'}`}
             onClick={() => setShowUnitFilters(!showUnitFilters)} title="Unit filters">
             <Filter size={13} />
@@ -2434,6 +2470,7 @@ export default function MapsPage() {
 
                   {/* Unit markers with clustering */}
                   {showUnitMarkers && <UnitClusterLayer units={unitMarkers} colors={statusColors} onUnitClick={(id) => navigate(`/units/${id}`)} showLabels={showUnitLabels} />}
+                  {showUnitGeometries && <UnitGeometryLayer units={units} colors={statusColors} onUnitClick={(id) => navigate(`/units/${id}`)} />}
                   {heatmapMode !== 'off' && <HeatmapLayer units={unitMarkers} mode={heatmapMode} />}
 
                   {/* Floor plan overlays + bounds picking */}

@@ -490,22 +490,26 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
   async function generateUnitsFromGeometries(pid: string, mode: 'append' | 'replace') {
     setGenerating(true);
     try {
-      const { data: geoms } = await supabase.from('project_geometries').select('id, geometry, label_en, project_id')
-        .eq('project_id', pid).in('geometry_type', ['site', 'building', 'floor']);
+      const { data: geoms, error: geomsErr } = await supabase.from('project_geometries').select('id, geometry, label_en, geometry_type, project_id')
+        .eq('project_id', pid).in('geometry_type', ['site', 'building', 'floor', 'unit']);
+      if (geomsErr) { toast.error('Failed to load geometries: ' + geomsErr.message); return; }
       if (!geoms || geoms.length === 0) { toast.info('No geometries found'); return; }
       const unitRows: Record<string, unknown>[] = [];
       for (const g of geoms) {
         if (!g.geometry) continue;
         const prefix = g.label_en ? g.label_en.slice(0, 6).replace(/[^a-zA-Z0-9_]/g, '') : 'U';
+        // For 'unit' type geometries, create 1 unit; for larger geometries, subdivide into 2×2 grid
+        const isUnitType = g.geometry_type === 'unit';
         const bounds = L.geoJSON(g.geometry).getBounds();
         const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
-        const rows = 2, cols = 2;
-        const latStep = (ne.lat - sw.lat) / rows, lngStep = (ne.lng - sw.lng) / cols;
+        const rows = isUnitType ? 1 : 2, cols = isUnitType ? 1 : 2;
+        const latStep = rows > 1 ? (ne.lat - sw.lat) / rows : 0;
+        const lngStep = cols > 1 ? (ne.lng - sw.lng) / cols : 0;
         let idx = 0;
         for (let r = 0; r < rows; r++) {
           for (let c = 0; c < cols; c++) {
             idx++;
-            const unitPolygon = {
+            const unitPolygon = isUnitType ? g.geometry : {
               type: 'Polygon',
               coordinates: [[
                 [sw.lng + c * lngStep, sw.lat + r * latStep],
