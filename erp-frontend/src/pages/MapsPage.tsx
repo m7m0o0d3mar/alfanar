@@ -124,6 +124,8 @@ function createDivIcon(status: string, label: string, size = 32, colors = DEFAUL
 
 function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { units: MapUnit[]; colors: Record<string, string>; onUnitClick?: (unitId: string) => void; showLabels?: boolean }) {
   const map = useMap();
+  const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
+  const labelRef = useRef<L.LayerGroup | null>(null);
   useEffect(() => {
     if (units.length === 0) return;
     const cluster = L.markerClusterGroup({
@@ -143,26 +145,25 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
         });
       },
     });
-    const navigateFn = onUnitClick ? `window.__mapUnitNav && window.__mapUnitNav('` : '';
-    const labelGroup = L.layerGroup();
+    const labels = L.layerGroup();
     for (const u of units.slice(0, 500)) {
       if (!u.lat || !u.lng) continue;
       const shortLabel = u.unit_code ? u.unit_code.length > 4 ? u.unit_code.slice(0, 4) : u.unit_code.slice(-4) : 'U';
       const statusColor = colors[u.status] || '#6b7280';
-      const displayCode = u.unit_code || '';
-      const icon = L.divIcon({
-        className: '',
-        html: `<div style="background:${statusColor};width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px ${statusColor}66;border:2px solid #fff;color:#fff;font-weight:700;font-size:10px;cursor:pointer">${shortLabel}</div>${showLabels ? `<div style="text-align:center;font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;margin-top:1px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2)">${displayCode}</div>` : ''}`,
-        iconSize: showLabels ? [80, 44] : [36, 36],
-        iconAnchor: showLabels ? [40, 44] : [18, 18],
+      const marker = L.marker([u.lat, u.lng], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="background:${statusColor};width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px ${statusColor}66;border:2px solid #fff;color:#fff;font-weight:700;font-size:10px;cursor:pointer">${shortLabel}</div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
+        }),
       });
-      const marker = L.marker([u.lat, u.lng], { icon });
       const unitId = u.id;
       marker.bindTooltip(`
         <div style="font-size:12px;font-weight:600">${u.unit_code}
           <span style="font-weight:400;color:#6b7280;font-size:11px">${u.unit_type ? `· ${u.unit_type}` : ''}${u.status ? `· ${u.status}` : ''}</span>
         </div>
-      `, { direction: 'top', offset: L.point(0, -22), sticky: true });
+      `, { direction: 'top', offset: L.point(0, -18), sticky: true });
       marker.bindPopup(`
         <div style="min-width:220px;font-family:system-ui,sans-serif">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -181,10 +182,39 @@ function UnitClusterLayer({ units, colors, onUnitClick, showLabels = true }: { u
         </div>
       `, { maxWidth: 280 });
       cluster.addLayer(marker);
+      // Create separate label marker
+      const displayCode = u.unit_code || '';
+      if (displayCode) {
+        const labelMarker = L.marker([u.lat, u.lng], {
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="text-align:center;font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;margin-top:1px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2)">${displayCode}</div>`,
+            iconSize: [80, 16],
+            iconAnchor: [40, 0],
+          }),
+          interactive: false,
+        });
+        labels.addLayer(labelMarker);
+      }
     }
     map.addLayer(cluster);
-    return () => { map.removeLayer(cluster); };
-  }, [map, units, onUnitClick, showLabels]);
+    if (showLabels) map.addLayer(labels);
+    clusterRef.current = cluster;
+    labelRef.current = labels;
+    return () => {
+      map.removeLayer(cluster);
+      if (map.hasLayer(labels)) map.removeLayer(labels);
+    };
+  }, [map, units, onUnitClick]);
+  // Separate effect for toggling labels without recreating markers
+  useEffect(() => {
+    if (!labelRef.current || !map) return;
+    if (showLabels) {
+      if (!map.hasLayer(labelRef.current)) map.addLayer(labelRef.current);
+    } else {
+      if (map.hasLayer(labelRef.current)) map.removeLayer(labelRef.current);
+    }
+  }, [map, showLabels]);
   return null;
 }
 
@@ -204,10 +234,10 @@ function polygonArea(geom: any): number {
 
 // ---------- 3D Viewer Component ----------
 function Map3DView({
-  blocks, buildings, projectGeometries = [], show, onSelect, statusColors: sc, selectedType, selectedId,
+  blocks, buildings, projectGeometries = [], show, onSelect, statusColors: sc, selectedType, selectedId, tileLayer,
 }: {
   blocks: MapBlock[]; buildings: MapBuilding[]; projectGeometries?: any[]; show: boolean; onSelect?: (type: string, id: string) => void; statusColors?: Record<string, string>;
-  selectedType?: string; selectedId?: string;
+  selectedType?: string; selectedId?: string; tileLayer?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<any>(null);
@@ -227,44 +257,58 @@ function Map3DView({
         const w = container.clientWidth || 600;
         const h = container.clientHeight || 400;
 
+        const isSatellite = tileLayer === 'satellite';
+        const isTerrain = tileLayer === 'terrain';
+        const sceneBg = isSatellite ? 0x1a2a1a : isTerrain ? 0xe8dcc8 : 0xe8ecf1;
+        const groundColor = isSatellite ? 0x2d4a2d : isTerrain ? 0xc8b898 : 0xd0d5dd;
+        const gridColor = isSatellite ? 0x4a6a4a : isTerrain ? 0x999988 : 0x888888;
+        const gridColor2 = isSatellite ? 0x3a5a3a : isTerrain ? 0xaaaaaa : 0xaaaaaa;
+
         const scene = new T.Scene();
-        scene.background = new T.Color(0x1a1a2e);
+        scene.background = new T.Color(sceneBg);
 
         const camera = new T.PerspectiveCamera(45, w / h, 0.1, 1000);
-        camera.position.set(0, 20, 25);
+        camera.position.set(0, 10, 15);
         camera.lookAt(0, 0, 0);
 
-        const renderer = new T.WebGLRenderer({ antialias: true });
+        const renderer = new T.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(w, h);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = T.PCFSoftShadowMap;
+        renderer.setClearColor(sceneBg, 1);
         container.appendChild(renderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.08;
         controls.maxPolarAngle = Math.PI / 2.2;
+        controls.minDistance = 5;
+        controls.maxDistance = 300;
         controls.target.set(0, 0, 0);
 
         // Lighting
-        const ambient = new T.AmbientLight(0x404060, 0.6);
+        const ambient = new T.AmbientLight(isSatellite ? 0xaabb99 : 0xffffff, 0.7);
         scene.add(ambient);
-        const dirLight = new T.DirectionalLight(0xffffff, 1.2);
-        dirLight.position.set(10, 30, 10);
+        const hemSky = isSatellite ? 0x88aa88 : 0x87ceeb;
+        const hemGround = isSatellite ? 0x557755 : 0x98d8c8;
+        const hemisphere = new T.HemisphereLight(hemSky, hemGround, 0.8);
+        scene.add(hemisphere);
+        const dirLight = new T.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(15, 25, 15);
         dirLight.castShadow = true;
         scene.add(dirLight);
-        const fillLight = new T.DirectionalLight(0x8888ff, 0.4);
-        fillLight.position.set(-10, 10, -10);
+        const fillLight = new T.DirectionalLight(0xffffff, 0.3);
+        fillLight.position.set(-15, 5, -15);
         scene.add(fillLight);
 
         // Ground grid
-        const gridHelper = new T.GridHelper(40, 20, 0x444466, 0x333355);
+        const gridHelper = new T.GridHelper(40, 20, gridColor, gridColor2);
         scene.add(gridHelper);
 
         // Ground plane
         const groundGeo = new T.PlaneGeometry(40, 40);
-        const groundMat = new T.MeshStandardMaterial({ color: 0x16213e, roughness: 0.8, metalness: 0.1 });
+        const groundMat = new T.MeshStandardMaterial({ color: groundColor, roughness: 0.9, metalness: 0, transparent: true, opacity: 0.9 });
         const ground = new T.Mesh(groundGeo, groundMat);
         ground.rotation.x = -Math.PI / 2;
         ground.position.y = -0.05;
@@ -2489,7 +2533,7 @@ export default function MapsPage() {
         {/* 3D View */}
         {is3d && !showWalkthrough && (
           <div className={`${viewMode === 'split' ? 'w-1/2' : 'flex-1'} glass-card overflow-hidden rounded-lg`}>
-            <Map3DView blocks={filteredBlocks} buildings={buildings} projectGeometries={projectGeometries} show={true} onSelect={handleSelect} statusColors={statusColors} selectedType={selectedType} selectedId={selectedId} />
+            <Map3DView blocks={filteredBlocks} buildings={buildings} projectGeometries={projectGeometries} show={true} onSelect={handleSelect} statusColors={statusColors} selectedType={selectedType} selectedId={selectedId} tileLayer={tileLayer} />
           </div>
         )}
 

@@ -102,29 +102,32 @@ function FitProjectBounds({ features }: { features: FeatureGroupData[] }) {
   return null;
 }
 
-function UnitMarkers({ projectId, showLabels }: { projectId: string; showLabels?: boolean }) {
+function UnitMarkers({ projectId, showLabels, refreshKey = 0 }: { projectId: string; showLabels?: boolean; refreshKey?: number }) {
   const map = useMap();
   const [units, setUnits] = useState<any[]>([]);
+  const markerRef = useRef<L.Marker[]>([]);
+  const labelRef = useRef<L.LayerGroup | null>(null);
   useEffect(() => {
     supabase.from('units').select('id, unit_code, unit_type, status, area_sqm, bedrooms, price, sale_price, lat, lng, floor_number, project_id')
       .eq('project_id', projectId).eq('is_active', true).limit(500).then(({ data }) => {
         setUnits(data || []);
       });
-  }, [projectId]);
+  }, [projectId, refreshKey]);
   useEffect(() => {
     const markers: L.Marker[] = [];
+    const labels = L.layerGroup();
     for (const u of units) {
       if (!u.lat || !u.lng) continue;
       const color = statusColors[u.status] || '#6b7280';
       const shortLabel = u.unit_code ? u.unit_code.length > 4 ? u.unit_code.slice(0, 4) : u.unit_code.slice(-4) : 'U';
-      const displayCode = u.unit_code || '';
-      const icon = L.divIcon({
-        className: '',
-        html: `<div style="width:30px;height:30px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 2px 6px ${color}66;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;letter-spacing:-0.5px">${shortLabel}</div>${showLabels ? `<div style="text-align:center;font-size:8px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:2px;padding:0 3px;margin-top:1px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2)">${displayCode}</div>` : ''}`,
-        iconSize: showLabels ? [80, 44] : [30, 30],
-        iconAnchor: showLabels ? [40, 44] : [15, 15],
+      const marker = L.marker([u.lat, u.lng], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="width:30px;height:30px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 2px 6px ${color}66;display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700;letter-spacing:-0.5px">${shortLabel}</div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
+        }),
       });
-      const marker = L.marker([u.lat, u.lng], { icon });
       marker.bindTooltip(`
         <div style="font-size:12px;font-weight:600">${u.unit_code}
           <span style="font-weight:400;color:#6b7280;font-size:11px;text-transform:capitalize">${u.unit_type ? `· ${u.unit_type}` : ''}${u.status ? `· ${u.status}` : ''}</span>
@@ -148,9 +151,38 @@ function UnitMarkers({ projectId, showLabels }: { projectId: string; showLabels?
       `, { maxWidth: 280 });
       marker.addTo(map);
       markers.push(marker);
+      // Create separate label marker
+      const displayCode = u.unit_code || '';
+      if (displayCode) {
+        const labelMarker = L.marker([u.lat, u.lng], {
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="text-align:center;font-size:9px;font-weight:600;color:#111;background:rgba(255,255,255,0.85);border-radius:3px;padding:0 4px;white-space:nowrap;pointer-events:none;box-shadow:0 0 3px rgba(0,0,0,0.2)">${displayCode}</div>`,
+            iconSize: [80, 16],
+            iconAnchor: [40, 0],
+          }),
+          interactive: false,
+        });
+        labels.addLayer(labelMarker);
+      }
     }
-    return () => { markers.forEach(m => map.removeLayer(m)); };
+    if (showLabels) map.addLayer(labels);
+    markerRef.current = markers;
+    labelRef.current = labels;
+    return () => {
+      markers.forEach(m => map.removeLayer(m));
+      if (map.hasLayer(labels)) map.removeLayer(labels);
+    };
   }, [map, units]);
+  // Separate effect for toggling labels without recreating markers
+  useEffect(() => {
+    if (!labelRef.current || !map) return;
+    if (showLabels) {
+      if (!map.hasLayer(labelRef.current)) map.addLayer(labelRef.current);
+    } else {
+      if (map.hasLayer(labelRef.current)) map.removeLayer(labelRef.current);
+    }
+  }, [map, showLabels]);
   return null;
 }
 
@@ -314,6 +346,7 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
   const [showUnitMarkers, setShowUnitMarkers] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [unitRefreshKey, setUnitRefreshKey] = useState(0);
   const [tileLayer, setTileLayer] = useState<'street' | 'satellite'>('street');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const levelColors = useRef<Record<string, { fill: string; stroke: string }>>({});
@@ -410,13 +443,16 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
       const geojson = JSON.parse(text);
       const features = geojson.type === 'FeatureCollection' ? geojson.features : [geojson];
       let count = 0;
+      const unitRows: Record<string, unknown>[] = [];
       for (const feat of features) {
         if (!feat.geometry || (feat.geometry.type !== 'Polygon' && feat.geometry.type !== 'MultiPolygon')) continue;
         const props = feat.properties || {};
+        const rawType = props.type || 'building';
+        const geoType = (rawType === 'Feature' || rawType === 'FeatureCollection') ? 'building' : rawType;
         await projectGeometriesApi.upsert({
           project_id: projectId,
-          geometry_type: props.type || 'building',
-          label_en: props.name || props.label_en || props.name_en || `Feature ${count + 1}`,
+          geometry_type: geoType,
+          label_en: props.name || props.label_en || props.name_en || `${geoType} ${count + 1}`,
           label_ar: props.label_ar || props.name_ar || null,
           geometry: feat.geometry,
           properties: {
@@ -429,7 +465,30 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
           level: props.level || 1,
           sort_order: count,
         });
+        // If type is 'unit', also sync directly to units table
+        if (geoType === 'unit') {
+          const coords = feat.geometry.type === 'Polygon' ? feat.geometry.coordinates[0] : feat.geometry.coordinates[0][0];
+          const lat = String(coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length);
+          const lng = String(coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length);
+          unitRows.push({
+            unit_code: props.unit_code || props.name || `UNIT-${String(count + 1).padStart(3, '0')}`,
+            unit_type: props.unit_type || 'apartment',
+            geometry: JSON.stringify(feat.geometry),
+            status: props.status || 'available',
+            is_active: 'true',
+            lat,
+            lng,
+          });
+        }
         count++;
+      }
+      // Sync unit geometries to units table in batch
+      if (unitRows.length > 0) {
+        const { error } = await supabase.rpc('generate_project_units', {
+          p_project_id: projectId, p_unit_data: unitRows, p_mode: 'append',
+        });
+        if (error) console.error('Unit sync failed:', error);
+        else { setUnitRefreshKey(k => k + 1); toast.success(`${unitRows.length} units synced`); }
       }
       loadData();
     } catch (err) {
@@ -489,6 +548,7 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
       });
       if (error) throw error;
       toast.success(`${count || unitRows.length} units ${mode === 'replace' ? 'replaced' : 'added'}`);
+      setUnitRefreshKey(k => k + 1);
       loadData();
     } catch (err: any) { toast.error(err?.message || 'Generation failed'); }
     setGenerating(false);
@@ -640,7 +700,7 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
                 levelColors={levelColors.current}
                 searchQuery={searchQuery}
               />
-              {showUnitMarkers && <UnitMarkers projectId={projectId} showLabels={showLabels} />}
+              {showUnitMarkers && <UnitMarkers projectId={projectId} showLabels={showLabels} refreshKey={unitRefreshKey} />}
               <CoordTracker />
               {measureMode !== 'none' && (
                 <MeasureClickHandler onMeasure={(lat, lng) => {

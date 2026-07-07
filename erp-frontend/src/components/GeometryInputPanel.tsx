@@ -183,12 +183,14 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
         : parsed.type === 'Feature' ? [parsed]
         : [{ type: 'Feature', geometry: parsed, properties: {} }];
 
+      const unitRows: Record<string, unknown>[] = [];
       for (let i = 0; i < features.length; i++) {
         const f = features[i];
         const geom = f.geometry;
         if (!geom) { errors.push(`Feature ${i + 1}: missing geometry`); continue; }
 
-        const featType = f.properties?.type || f.properties?.geometry_type || targetLevel;
+        const rawType = f.properties?.type || f.properties?.geometry_type || targetLevel;
+        const featType = (rawType === 'Feature' || rawType === 'FeatureCollection') ? targetLevel : rawType;
         const label = f.properties?.label_en || f.properties?.name || f.properties?.unit_code || `${featType}_${i + 1}`;
         const labelAr = f.properties?.label_ar || null;
 
@@ -206,9 +208,33 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
             status: 'active',
           });
           success++;
+          // If type is 'unit', sync directly to units table preserving exact geometry
+          if (featType === 'unit') {
+            const coords = geom.type === 'Polygon' ? geom.coordinates[0] : geom.coordinates[0][0];
+            const lat = String(coords.reduce((s: number, c: number[]) => s + c[1], 0) / coords.length);
+            const lng = String(coords.reduce((s: number, c: number[]) => s + c[0], 0) / coords.length);
+            unitRows.push({
+              unit_code: f.properties?.unit_code || f.properties?.name || `UNIT-${String(i + 1).padStart(3, '0')}`,
+              unit_type: f.properties?.unit_type || 'apartment',
+              geometry: JSON.stringify(geom),
+              status: f.properties?.status || 'available',
+              is_active: 'true',
+              lat,
+              lng,
+            });
+          }
         } catch (err: any) {
           errors.push(`Feature ${i + 1} (${label}): ${err.message || 'DB error'}`);
         }
+      }
+
+      // Sync unit geometries to units table in batch
+      if (unitRows.length > 0) {
+        const { error } = await supabase.rpc('generate_project_units', {
+          p_project_id: projectId, p_unit_data: unitRows, p_mode: 'append',
+        });
+        if (error) console.error('Unit sync failed:', error);
+        else toast.success(`${unitRows.length} units synced from GeoJSON`);
       }
 
       await geometryImportsApi.create({
@@ -221,8 +247,8 @@ export default function GeometryInputPanel({ projectId, parentId, targetLevel, o
     }
 
     if (success > 0) {
-      const unitCount = await autoGenerateUnits(projectId, 'append');
-      if (unitCount > 0) toast.success(`Auto-generated ${unitCount} units`);
+      const genCount = await autoGenerateUnits(projectId, 'append');
+      if (genCount > 0) toast.success(`Auto-generated ${genCount} units from site/building/floor geometries`);
     }
 
     setResult({ success, errors });
