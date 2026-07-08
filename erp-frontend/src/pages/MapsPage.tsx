@@ -15,6 +15,7 @@ import {
   Home, Box, PanelRight, Download, Upload, Save, Plus, Edit3, X, Check,
   RotateCw, ZoomIn, ZoomOut, Target, Grid3x3, Type, MousePointer, FileText,
   Ruler, Footprints, Camera, ChevronLeft, Image, FileSpreadsheet, Filter,
+  Globe, Navigation, BarChart3, Crosshair, SlidersHorizontal, CircleDot,
 } from 'lucide-react';
 import QRCodeModal from '../components/QRCodeModal';
 import { useToast } from '../context/ToastContext';
@@ -49,6 +50,10 @@ const TILE_LAYERS = {
   street: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', att: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>' },
   satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', att: '&copy; Esri' },
   terrain: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', att: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a>' },
+};
+const OVERLAY_LAYERS = {
+  boundaries: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', att: '&copy; OSM', label: 'Boundaries' },
+  traffic: { url: '', att: '', label: 'Traffic (API key)' },
 };
 
 type ViewMode = '2d' | '3d' | 'split';
@@ -1475,6 +1480,84 @@ function UnitGeometryLayer({ units, colors, onUnitClick }: { units: MapUnit[]; c
   return null;
 }
 
+// ---------- Geocoding Search (Nominatim) ----------
+function GeocodingLayer({ results, onClear }: { results: { lat: number; lng: number; display_name: string }[]; onClear: () => void }) {
+  const map = useMap();
+  useEffect(() => {
+    const group = L.layerGroup();
+    for (const r of results) {
+      const marker = L.marker([r.lat, r.lng], {
+        icon: L.divIcon({ className: '', html: `<div style="background:#6366f1;width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.3)"></div><div style="position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);background:#fff;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:600;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.15);pointer-events:none">📍 ${r.display_name.split(',')[0]}</div>`, iconSize: [16, 36], iconAnchor: [8, 8] }),
+      });
+      marker.bindPopup(`<div style="font-size:11px;max-width:260px;line-height:1.4"><strong>${r.display_name}</strong><br/><span style="color:#6b7280">${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}</span></div>`);
+      group.addLayer(marker);
+      if (results.length === 1) map.fitBounds(marker.getLatLng().toBounds(500));
+    }
+    map.addLayer(group);
+    return () => { try { map.removeLayer(group); group.clearLayers(); } catch {} };
+  }, [map, results]);
+  return null;
+}
+
+// ---------- Radius / Buffer Analysis ----------
+function RadiusAnalysisLayer({ center, radius, units }: { center: [number, number]; radius: number; units: MapUnit[] }) {
+  const map = useMap();
+  useEffect(() => {
+    const group = L.layerGroup();
+    const circle = L.circle(center, { radius, color: '#6366f1', fillColor: '#6366f1', fillOpacity: 0.08, weight: 2, dashArray: '5 5' });
+    group.addLayer(circle);
+    const centerMarker = L.marker(center, {
+      icon: L.divIcon({ className: '', html: `<div style="background:#6366f1;width:12px;height:12px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 8px rgba(99,102,241,0.5)"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] }),
+    });
+    group.addLayer(centerMarker);
+    const tooltipText = `<div style="font-size:11px;font-weight:600;text-align:center"><span style="font-size:15px">${units.length}</span> units within <span style="font-weight:700">${radius >= 1000 ? (radius/1000).toFixed(1) + ' km' : Math.round(radius) + ' m'}</span></div>`;
+    const tooltip = L.tooltip({ permanent: true, direction: 'top', offset: L.point(0, -10), className: 'radius-tooltip' }).setContent(tooltipText).setLatLng(center);
+    group.addLayer(tooltip);
+    map.addLayer(group);
+    return () => { try { map.removeLayer(group); group.clearLayers(); } catch {} };
+  }, [map, center, radius, units]);
+  return null;
+}
+
+// ---------- 3D Column Layer on 2D Map (Azure Maps-style) ----------
+function ColumnLayer3D({ units, metric, colors }: { units: MapUnit[]; metric: 'price' | 'area'; colors: Record<string, string> }) {
+  const map = useMap();
+  useEffect(() => {
+    const canvas = L.canvas({ padding: 0.1 }) as any;
+    const colMap = new Map<string, L.CircleMarker>();
+    const maxVal = Math.max(...units.map(u => metric === 'price' ? (u.price || 0) : (u.area_sqm || 0)), 1);
+    for (const u of units) {
+      if (!u.lat || !u.lng) continue;
+      const val = metric === 'price' ? (u.price || 0) : (u.area_sqm || 0);
+      const norm = val / maxVal;
+      const radius = 4 + norm * 24;
+      const statusColor = colors[u.status] || '#6b7280';
+      const mk = L.circleMarker([u.lat, u.lng], {
+        radius, color: statusColor, fillColor: statusColor, fillOpacity: 0.35 + norm * 0.45, weight: 1 + norm * 2, opacity: 0.8,
+        interactive: false, renderer: canvas,
+      });
+      colMap.set(u.id, mk);
+      mk.bindTooltip(`<div style="font-size:10px;font-weight:600">${u.unit_code}<span style="font-weight:400;color:#6b7280"> ${metric === 'price' ? (u.price || 0).toLocaleString() + ' SAR' : (u.area_sqm || 0) + ' m²'}</span></div>`, { direction: 'top', sticky: true });
+    }
+    const group = L.layerGroup([...colMap.values()]);
+    map.addLayer(group);
+    return () => { try { map.removeLayer(group); group.clearLayers(); } catch {} };
+  }, [map, units, metric, colors]);
+  return null;
+}
+
+// ---------- Overlay Tile Layer (Boundaries / Traffic) ----------
+function OverlayTileLayer({ url, opacity = 0.4 }: { url: string; opacity?: number }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!url) return;
+    const layer = L.tileLayer(url, { opacity, attribution: '' });
+    map.addLayer(layer);
+    return () => { map.removeLayer(layer); };
+  }, [map, url, opacity]);
+  return null;
+}
+
 function HeatmapLayer({ units, mode }: { units: MapUnit[]; mode: 'price' | 'density' }) {
   const map = useMap();
   useEffect(() => {
@@ -1776,6 +1859,20 @@ export default function MapsPage() {
   const [showUnitMarkers, setShowUnitMarkers] = useState(true);
   const [showUnitLabels, setShowUnitLabels] = useState(true);
   const [showUnitGeometries, setShowUnitGeometries] = useState(false);
+  const [showGeocoding, setShowGeocoding] = useState(false);
+  const [geocodingQuery, setGeocodingQuery] = useState('');
+  const [geocodingResults, setGeocodingResults] = useState<{ lat: number; lng: number; display_name: string }[]>([]);
+  const [geocodingLoading, setGeocodingLoading] = useState(false);
+  const geocodingTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [showRadiusAnalysis, setShowRadiusAnalysis] = useState(false);
+  const [radiusCenter, setRadiusCenter] = useState<[number, number] | null>(null);
+  const [radiusValue, setRadiusValue] = useState(500);
+  const [radiusUnits, setRadiusUnits] = useState<MapUnit[]>([]);
+  const [showColumn3D, setShowColumn3D] = useState(false);
+  const [columnMetric, setColumnMetric] = useState<'price' | 'area'>('price');
+  const [flyToCoord, setFlyToCoord] = useState<{ lat: number; lng: number; zoom: number; label?: string } | null>(null);
+  const [showBoundaryOverlay, setShowBoundaryOverlay] = useState(false);
+  const [showTrafficOverlay, setShowTrafficOverlay] = useState(false);
   const [showUnitFilters, setShowUnitFilters] = useState(false);
   const [heatmapMode, setHeatmapMode] = useState<'off' | 'price' | 'density'>('off');
   const [unitTypeFilter, setUnitTypeFilter] = useState('');
@@ -1853,6 +1950,37 @@ export default function MapsPage() {
   }, [toast]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Geocoding via Nominatim
+  const doGeocode = useCallback(async (q: string) => {
+    if (!q.trim()) { setGeocodingResults([]); return; }
+    setGeocodingLoading(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&addressdetails=1`);
+      const data = await res.json();
+      setGeocodingResults(data.map((d: any) => ({ lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name })));
+    } catch { setGeocodingResults([]); }
+    setGeocodingLoading(false);
+  }, []);
+  const onGeocodeInput = useCallback((val: string) => {
+    setGeocodingQuery(val);
+    if (geocodingTimer.current) clearTimeout(geocodingTimer.current);
+    geocodingTimer.current = setTimeout(() => doGeocode(val), 500);
+  }, [doGeocode]);
+
+  // Radius analysis helpers
+  const computeRadiusUnits = useCallback((center: [number, number], radiusM: number) => {
+    const R = 6371000;
+    const within = units.filter(u => {
+      if (!u.lat || !u.lng) return false;
+      const dLat = (u.lat - center[0]) * Math.PI / 180;
+      const dLng = (u.lng - center[1]) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(center[0]*Math.PI/180) * Math.cos(u.lat*Math.PI/180) * Math.sin(dLng/2)**2;
+      const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return dist <= radiusM;
+    });
+    setRadiusUnits(within);
+  }, [units]);
 
   // Allow unit popup buttons to navigate (Leaflet innerHTML cannot use React hooks)
   useEffect(() => {
@@ -2122,6 +2250,36 @@ export default function MapsPage() {
               ) : null;
             })()}
           </div>
+          <button className={`btn-sm ${showGeocoding ? 'bg-emerald-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setShowGeocoding(!showGeocoding)} title="Search address / place (geocoding)">
+            <Globe size={13} />
+          </button>
+          {showGeocoding && (
+            <div className="relative" style={{ zIndex: 9999 }}>
+              <input type="text" placeholder="Search address..." className="input text-xs"
+                style={{ width: '180px', padding: '0.25rem 0.5rem' }}
+                value={geocodingQuery} onChange={e => onGeocodeInput(e.target.value)}
+                autoFocus />
+              {geocodingLoading && <div className="absolute right-1 top-1/2 -translate-y-1/2"><div className="animate-spin h-3 w-3 border-2 border-primary border-t-transparent rounded-full" /></div>}
+              {geocodingResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 rounded-lg overflow-hidden shadow-xl z-[9999]"
+                  style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', maxHeight: 200, overflowY: 'auto' }}>
+                  {geocodingResults.map((r, i) => (
+                    <div key={i} className="px-2 py-1.5 text-xs cursor-pointer hover:bg-white/10 border-b last:border-0 transition-colors flex items-start gap-1.5"
+                      onMouseDown={() => { setFlyToCoord({ lat: r.lat, lng: r.lng, zoom: 16, label: r.display_name.split(',')[0] }); setGeocodingResults([r]); setGeocodingQuery(''); }}>
+                      <Navigation size={11} className="mt-0.5 shrink-0" style={{ color: 'var(--color-primary)' }} />
+                      <div><div className="font-medium">{r.display_name.split(',')[0]}</div><div className="opacity-60 text-[9px]">{r.lat.toFixed(4)}, {r.lng.toFixed(4)}</div></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {geocodingResults.length === 1 && (
+                <button className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-red-500" onClick={() => { setGeocodingResults([]); setGeocodingQuery(''); }} title="Clear">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          )}
           <select className="select text-xs" style={{ padding: '0.25rem 0.5rem' }}
             value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="all">All Status</option>
@@ -2153,6 +2311,10 @@ export default function MapsPage() {
             onClick={() => setShowImagePanel(!showImagePanel)} title="Image layers">
             <Image size={13} />
           </button>
+          <button className={`btn-sm ${showBoundaryOverlay ? 'bg-teal-600 text-white' : 'btn-secondary'}`}
+            onClick={() => setShowBoundaryOverlay(!showBoundaryOverlay)} title="Show administrative boundaries">
+            <MapPin size={13} />
+          </button>
           <button className={`btn-sm ${showGeometryPanel ? 'bg-orange-600 text-white' : 'btn-secondary'}`}
             onClick={() => setShowGeometryPanel(!showGeometryPanel)} title="Add geometry">
             <FileSpreadsheet size={13} />
@@ -2175,6 +2337,14 @@ export default function MapsPage() {
           <button className={`btn-sm ${measureMode !== 'none' ? 'bg-green-600 text-white' : 'btn-secondary'}`}
             onClick={() => setMeasureMode(measureMode === 'none' ? 'distance' : 'none')} title="Measure">
             <Ruler size={13} />
+          </button>
+          <button className={`btn-sm ${showRadiusAnalysis ? 'bg-violet-600 text-white' : 'btn-secondary'}`}
+            onClick={() => { setShowRadiusAnalysis(!showRadiusAnalysis); if (!showRadiusAnalysis) { setRadiusCenter(null); setRadiusUnits([]); } }} title="Radius / Buffer analysis">
+            <CircleDot size={13} />
+          </button>
+          <button className={`btn-sm ${showColumn3D ? 'bg-rose-600 text-white' : 'btn-secondary'}`}
+            onClick={() => { setShowColumn3D(!showColumn3D); }} title="3D Column layer (height = price/area)">
+            <BarChart3 size={13} />
           </button>
           <button className={`btn-sm ${heatmapMode !== 'off' ? 'bg-red-600 text-white' : 'btn-secondary'}`}
             onClick={() => setHeatmapMode(heatmapMode === 'off' ? 'price' : heatmapMode === 'price' ? 'density' : 'off')}
@@ -2245,6 +2415,38 @@ export default function MapsPage() {
           <button className="btn-xs btn-secondary" onClick={() => {
             setUnitTypeFilter(''); setUnitStatusFilter(''); setUnitBedroomsMin(''); setUnitPriceMax('');
           }}>Clear</button>
+        </div>
+      )}
+
+      {/* Radius Analysis Panel */}
+      {showRadiusAnalysis && (
+        <div className="flex items-center gap-2 px-2 pb-1 flex-wrap">
+          <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+            <CircleDot size={11} className="inline mr-1" />Buffer Analysis
+          </span>
+          {!radiusCenter ? (
+            <span className="text-[10px] opacity-60">Click on map to set center point</span>
+          ) : (
+            <>
+              <span className="text-[10px] opacity-60">Radius:</span>
+              <input type="range" min={50} max={5000} step={50} value={radiusValue}
+                onChange={e => { const v = parseInt(e.target.value); setRadiusValue(v); computeRadiusUnits(radiusCenter, v); }}
+                className="w-24 h-1.5" />
+              <span className="text-[10px] font-mono font-bold">{radiusValue >= 1000 ? (radiusValue / 1000).toFixed(1) + ' km' : radiusValue + ' m'}</span>
+              <span className="text-[10px] font-bold" style={{ color: 'var(--color-primary)' }}>{radiusUnits.length} units within</span>
+              <button className="btn-xs btn-secondary" onClick={() => { setRadiusCenter(null); setRadiusUnits([]); }}>Clear</button>
+              <button className="btn-xs btn-primary" onClick={() => { const list = radiusUnits.slice(0, 20).map(u => u.unit_code).join(', '); navigator.clipboard?.writeText(list); toast.success(`${radiusUnits.length} unit codes copied`); }}>Copy list</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 3D Column Metric Toggle */}
+      {showColumn3D && (
+        <div className="flex items-center gap-2 px-2 pb-1 flex-wrap">
+          <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-secondary)' }}><BarChart3 size={11} className="inline mr-1" />3D Columns</span>
+          <button className={`btn-xs ${columnMetric === 'price' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setColumnMetric('price')}>Price</button>
+          <button className={`btn-xs ${columnMetric === 'area' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setColumnMetric('area')}>Area</button>
         </div>
       )}
 
@@ -2472,6 +2674,14 @@ export default function MapsPage() {
                   {showUnitMarkers && <UnitClusterLayer units={unitMarkers} colors={statusColors} onUnitClick={(id) => navigate(`/units/${id}`)} showLabels={showUnitLabels} />}
                   {showUnitGeometries && <UnitGeometryLayer units={units} colors={statusColors} onUnitClick={(id) => navigate(`/units/${id}`)} />}
                   {heatmapMode !== 'off' && <HeatmapLayer units={unitMarkers} mode={heatmapMode} />}
+
+                  {/* Azure Maps-style layers: Geocoding, Radius, 3D Columns, Overlays */}
+                  {geocodingResults.length > 0 && <GeocodingLayer results={geocodingResults} onClear={() => setGeocodingResults([])} />}
+                  {flyToCoord && <FlyToCoord coord={flyToCoord} />}
+                  {showRadiusAnalysis && radiusCenter && <RadiusAnalysisLayer center={radiusCenter} radius={radiusValue} units={radiusUnits} />}
+                  {showRadiusAnalysis && !radiusCenter && <RadiusClickHandler onPick={(lat, lng) => { setRadiusCenter([lat, lng]); computeRadiusUnits([lat, lng], radiusValue); }} />}
+                  {showColumn3D && unitMarkers.length > 0 && <ColumnLayer3D units={unitMarkers} metric={columnMetric} colors={statusColors} />}
+                  {showBoundaryOverlay && <OverlayTileLayer url={OVERLAY_LAYERS.boundaries.url} opacity={0.3} />}
 
                   {/* Floor plan overlays + bounds picking */}
                   <FloorPlanOverlay floors={floors} selectedType={selectedType} selectedId={selectedId} boundsPoints={boundsPoints} />
@@ -2747,4 +2957,20 @@ function MapCoordTracker() {
       {coord || '24.7500, 46.7500'}
     </div>
   );
+}
+
+// ---------- Fly-to Coordinate ----------
+function FlyToCoord({ coord }: { coord: { lat: number; lng: number; zoom: number; label?: string } | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!coord) return;
+    map.flyTo([coord.lat, coord.lng], coord.zoom, { duration: 1 });
+  }, [map, coord]);
+  return null;
+}
+
+// ---------- Radius Click Handler ----------
+function RadiusClickHandler({ onPick }: { onPick: (lat: number, lng: number) => void }) {
+  useMapEvents({ click: (e) => { onPick(e.latlng.lat, e.latlng.lng); } });
+  return null;
 }

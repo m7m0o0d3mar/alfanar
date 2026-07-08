@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { supabase } from '../services/supabase';
 import { projectGeometriesApi, type ProjectGeometry } from '../services/api';
-import { Building2, Layers, Home, Map, MapPin, Maximize2, Minimize2, ExternalLink, DollarSign, Target, ArrowLeft, ChevronRight, Upload, Download, Grid3x3, Search, RotateCw, Filter, Info, Ruler, MousePointer, Type } from 'lucide-react';
+import { Building2, Layers, Home, Map, MapPin, Maximize2, Minimize2, ExternalLink, DollarSign, Target, ArrowLeft, ChevronRight, Upload, Download, Grid3x3, Search, RotateCw, Filter, Info, Ruler, MousePointer, Type, Globe, X, Navigation } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
 import ProjectSitePlanGenerator from './ProjectSitePlanGenerator';
@@ -336,6 +336,12 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
   const [generating, setGenerating] = useState(false);
   const [unitRefreshKey, setUnitRefreshKey] = useState(0);
   const [tileLayer, setTileLayer] = useState<'street' | 'satellite'>('street');
+  const [showGeocoding, setShowGeocoding] = useState(false);
+  const [geocodingQuery, setGeocodingQuery] = useState('');
+  const [geocodingResults, setGeocodingResults] = useState<{ lat: number; lng: number; display_name: string }[]>([]);
+  const [geocodingLoading, setGeocodingLoading] = useState(false);
+  const geocodingTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [flyToCoord, setFlyToCoord] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const levelColors = useRef<Record<string, { fill: string; stroke: string }>>({});
   const fitKey = useRef(0);
@@ -594,6 +600,44 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
               className="text-xs border rounded py-1 pl-6 pr-2 w-28 outline-none focus:border-blue-400"
               value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
           </div>
+          <div className="relative" style={{ zIndex: 9999 }}>
+            <button onClick={() => setShowGeocoding(!showGeocoding)}
+              className={`p-1.5 rounded ${showGeocoding ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-gray-100 text-gray-500'}`}
+              title="Search address / place">
+              <Globe size={14} />
+            </button>
+            {showGeocoding && (
+              <div className="absolute top-full right-0 mt-1 w-64 rounded-lg overflow-hidden shadow-xl z-[9999]" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                <input type="text" placeholder="Search address..." className="text-xs w-full px-2 py-1.5 outline-none border-b"
+                  style={{ background: 'transparent', color: 'var(--color-text)' }}
+                  value={geocodingQuery} onChange={e => {
+                    const v = e.target.value; setGeocodingQuery(v);
+                    clearTimeout(geocodingTimer.current);
+                    if (!v.trim()) { setGeocodingResults([]); return; }
+                    geocodingTimer.current = setTimeout(async () => {
+                      setGeocodingLoading(true);
+                      try {
+                        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(v)}&limit=5`);
+                        const data = await res.json();
+                        setGeocodingResults(data.map((d: any) => ({ lat: parseFloat(d.lat), lng: parseFloat(d.lon), display_name: d.display_name })));
+                      } catch {}
+                      setGeocodingLoading(false);
+                    }, 500);
+                  }} autoFocus />
+                {geocodingLoading && <div className="p-2 text-[10px] opacity-50">Searching...</div>}
+                {geocodingResults.map((r, i) => (
+                  <div key={i} className="flex items-start gap-1.5 px-2 py-1.5 text-xs cursor-pointer hover:bg-white/10 border-b last:border-0"
+                    onMouseDown={() => { setFlyToCoord({ lat: r.lat, lng: r.lng, zoom: 16 }); setGeocodingResults([]); setShowGeocoding(false); }}>
+                    <Navigation size={11} className="mt-0.5 shrink-0 text-primary" />
+                    <div><div className="font-medium">{r.display_name.split(',')[0]}</div><div className="opacity-50 text-[9px]">{r.lat.toFixed(4)}, {r.lng.toFixed(4)}</div></div>
+                  </div>
+                ))}
+                {geocodingResults.length > 0 && (
+                  <button className="w-full p-1 text-[10px] opacity-50 hover:opacity-100 text-center" onClick={() => { setGeocodingResults([]); setGeocodingQuery(''); }}>Clear</button>
+                )}
+              </div>
+            )}
+          </div>
           {features.length > 0 && (
             <button onClick={() => setShowStats(!showStats)}
               className={`p-1.5 rounded hover:bg-gray-100 ${showStats ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`} title="Statistics">
@@ -684,6 +728,7 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
               />
               <ScaleControl position="bottomleft" imperial={false} />
               <FitProjectBounds features={features} key={fitKey.current} />
+              <FlyToCoordP coord={flyToCoord} />
               <MapContent
                 geometries={features}
                 selectedId={selectedId}
@@ -900,4 +945,10 @@ export default function ProjectSitePlan({ projectId, projectName, height = '500p
       )}
     </div>
   );
+}
+
+function FlyToCoordP({ coord }: { coord: { lat: number; lng: number; zoom: number } | null }) {
+  const map = useMap();
+  useEffect(() => { if (coord) map.flyTo([coord.lat, coord.lng], coord.zoom, { duration: 1 }); }, [map, coord]);
+  return null;
 }
